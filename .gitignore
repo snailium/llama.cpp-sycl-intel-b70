@@ -1,0 +1,23 @@
+# Build artifacts
+build/
+*.so
+*.so.*
+llama
+llama-*
+
+# Docker
+*.tar
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Models (never commit)
+models/
+*.gguf
+*.bin
+
+# Logs
+*.log
