@@ -25,7 +25,7 @@ git commit -m "Initial community SYCL Docker for Intel Arc B70
 - CI workflow stub for rebuilding the image"
 
 git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
+git remote add origin https://github.com/snailium/llama.cpp-sycl-intel-b70.git
 git push -u origin main
 ```
 
@@ -47,7 +47,7 @@ git fetch upstream
 ## Testing the image locally after push
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
+git clone https://github.com/snailium/llama.cpp-sycl-intel-b70.git
 cd YOUR_REPO_NAME
 ./scripts/build-b70-image.sh server my-b70-image
 ```
