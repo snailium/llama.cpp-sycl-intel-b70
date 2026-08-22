@@ -12,7 +12,7 @@ on:
       oneapi_version:
         description: 'intel/deep-learning-essentials devel tag'
         required: false
-        default: '2026.1-devel-ubuntu24.04'
+        default: '2026.1.2-devel-ubuntu24.04'
 
 jobs:
   build:
@@ -41,7 +41,7 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/llama-sycl-b70:server
           build-args: |
-            ONEAPI_VERSION=${{ github.event.inputs.oneapi_version || '2026.1-devel-ubuntu24.04' }}
+            ONEAPI_VERSION=${{ github.event.inputs.oneapi_version || '2026.1.2-devel-ubuntu24.04' }}
             GGML_SYCL_F16=ON
             GGML_SYCL_DEVICE_ARCH=bmg-g31
           cache-from: type=gha
