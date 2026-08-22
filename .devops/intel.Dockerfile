@@ -45,7 +45,7 @@ WORKDIR /app
 COPY . .
 
 RUN mkdir -p tools/ui/dist
-COPY --from=web /app/tools/ui/dist tools/ui/dist || true
+COPY --from=web /app/tools/ui/dist/ tools/ui/dist/
 
 # Build with SYCL + dynamic backends + all CPU variants.
 # NO GGML_SYCL_DISABLE_OPT (that hurts plain llama.cpp SYCL perf)
@@ -56,7 +56,7 @@ RUN if [ "${GGML_SYCL_F16}" = "ON" ]; then \
         && export SYCL_PROGRAM_COMPILE_OPTIONS="-cl-fp32-correctly-rounded-divide-sqrt"; \
     fi && \
     echo "Building with dynamic libs + Battlemage AOT (bmg-g31)" && \
-    cmake -B build \
+    cmake -S llama.cpp -B build \
       -DGGML_NATIVE=OFF \
       -DGGML_SYCL=ON \
       -DCMAKE_C_COMPILER=icx \
@@ -73,12 +73,12 @@ RUN mkdir -p /app/lib && \
 
 RUN mkdir -p /app/full \
     && cp build/bin/* /app/full \
-    && cp *.py /app/full \
-    && cp -r conversion /app/full \
-    && cp -r gguf-py /app/full \
-    && cp -r requirements /app/full \
-    && cp requirements.txt /app/full \
-    && cp .devops/tools.sh /app/full/tools.sh
+    && cp llama.cpp/*.py /app/full || true \
+    && cp -r llama.cpp/conversion /app/full || true \
+    && cp -r llama.cpp/gguf-py /app/full || true \
+    && cp -r llama.cpp/requirements /app/full || true \
+    && cp llama.cpp/requirements.txt /app/full || true \
+    && cp llama.cpp/.devops/tools.sh /app/full/tools.sh || true
 
 FROM docker.io/intel/deep-learning-essentials:$ONEAPI_VERSION AS base
 

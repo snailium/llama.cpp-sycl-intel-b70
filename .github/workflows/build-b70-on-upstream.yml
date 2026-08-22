@@ -52,7 +52,7 @@ jobs:
       - name: Fetch upstream and detect latest stable v tag
         id: detect-v
         run: |
-          git remote add upstream https://github.com/ggml-org/llama.cpp.git 2>/dev/null || true
+          git remote add upstream https://github.com/ggml-org/llama.cpp.git 2>/dev/null
           git fetch upstream --tags
 
           LATEST_V=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^v[0-9]' | head -1)
@@ -90,7 +90,7 @@ jobs:
         run: |
           LATEST_V="${{ steps.detect-v.outputs.latest_v }}"
           echo "Temporarily pulling $LATEST_V into subtree for build..."
-          git subtree pull --prefix=llama.cpp upstream "$LATEST_V" --squash -m "temp: pull $LATEST_V for build" || true
+          git subtree pull --prefix=llama.cpp upstream "$LATEST_V" --squash -m "temp: pull $LATEST_V for build"
 
       - name: Compute immutable tag
         if: steps.detect-v.outputs.should_build == 'true'
@@ -138,9 +138,9 @@ jobs:
                     `**Build**: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n` +
                     `**Next steps on B70**:\n` +
                     `1. Pull and test:\n` +
-                    `   ./b70-deploy-scripts/test-b70-image.sh ${tag}\n\n` +
+                    `   scripts/build-b70-image.sh (or your local test script) ${tag}\n\n` +
                     `2. If tests pass, promote:\n` +
-                    `   ./b70-deploy-scripts/promote-b70-image.sh ${tag}\n\n` +
+                    `   workspace-only promote script (not in repo) ${tag}\n\n` +
                     `This tag is immutable. Old :server remains unchanged until you promote.`
             });
 
@@ -172,7 +172,7 @@ jobs:
       - name: Fetch upstream and decide b vs v
         id: detect-b
         run: |
-          git remote add upstream https://github.com/ggml-org/llama.cpp.git 2>/dev/null || true
+          git remote add upstream https://github.com/ggml-org/llama.cpp.git 2>/dev/null
           git fetch upstream --tags
 
           LATEST_B=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^b[0-9]+' | head -1)
@@ -212,7 +212,7 @@ jobs:
         run: |
           LATEST_B="${{ steps.detect-b.outputs.latest_b }}"
           echo "Temporarily pulling $LATEST_B into subtree for weekly dev build..."
-          git subtree pull --prefix=llama.cpp upstream "$LATEST_B" --squash -m "temp: pull $LATEST_B for dev build" || true
+          git subtree pull --prefix=llama.cpp upstream "$LATEST_B" --squash -m "temp: pull $LATEST_B for dev build"
 
       - name: Compute immutable tag (weekly dev)
         if: steps.detect-b.outputs.should_build == 'true'
@@ -262,8 +262,8 @@ jobs:
                     `**Build**: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n` +
                     `**Next steps on B70**:\n` +
                     `1. Pull and test:\n` +
-                    `   ./b70-deploy-scripts/test-b70-image.sh ${tag}\n\n` +
+                    `   scripts/build-b70-image.sh (or your local test script) ${tag}\n\n` +
                     `2. If tests pass, promote (optional for dev):\n` +
-                    `   ./b70-deploy-scripts/promote-b70-image.sh ${tag}\n\n` +
+                    `   workspace-only promote script (not in repo) ${tag}\n\n` +
                     `Note: This is a development weekly snapshot. Only promote to :server if you explicitly want to.`
             });

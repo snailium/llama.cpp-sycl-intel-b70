@@ -47,20 +47,20 @@ export ZES_ENABLE_SYSMAN=1
   -m /models/Qwen3-27B-Q4_K_M.gguf \
   --n-gpu-layers 999 \
   --ctx-size 32768 \
-  --flash-attn \
+  --flash-attn on \
   # KV cache: omit or use f16 explicitly
   # --cache-type-k f16 --cache-type-v f16
   --port 8080 --host 0.0.0.0
 ```
 
-Avoid `--cache-type-k q8_0` on B70 — there is a known low-bandwidth kernel path.
+For pure text short context: f16 is fine and fastest. For MTP + large context (96k-128k+), q8_0 KV cache has proven to be the practical lifeline on B70 to avoid OOM (see benchmark reports).
 
 MTP / speculative decoding:
 - Use a draft model GGUF + the appropriate `--draft` / `--draft-model` flags supported by your build of llama-server.
 - Nothing in this image disables the speculative paths.
 
 Flash Attention:
-- Use `--flash-attn`. The SYCL backend supports it (added upstream ~2026.03). Memory savings are significant on 27B+ at large context.
+- Use `--flash-attn on` (or auto). The SYCL backend supports it (added upstream ~2026.03). Memory savings are significant on 27B+ at large context.
 
 ## 5. Common pitfalls on B70
 
@@ -98,3 +98,27 @@ B70 multi-GPU works with `--split-mode layer` or model routing (separate servers
 ---
 
 Keep all features on. Measure, then decide. Report back exact versions + numbers so the community pins stay current.
+
+## 9. B70 Disappearance / PCIe Link Training Issues (B450 etc.)
+
+Some motherboards (notably ASUS ROG STRIX B450-F) can lose the B70 after heavy load, crash, or reboot. Symptoms: `lspci` no longer shows the card, even though it was present before.
+
+**Recovery procedure that has worked:**
+1. Power off completely.
+2. Physically remove the B70 card.
+3. Boot into the system using integrated graphics (iGPU).
+4. Shut down cleanly.
+5. Re-insert the B70 card.
+6. Boot again.
+
+**Prevention / stability notes:**
+- Prefer direct motherboard slot (avoid risers/extenders when possible for daily use).
+- `pcie_aspm=off` in kernel cmdline has helped some users with link drops.
+- Monitor with `dmesg | grep -iE 'xe|pcie|fault'` and `journalctl -b -1` after incidents.
+- Record full timeline in `benchmark/B70_gpu_dropout_*.md` when it happens.
+
+See also `benchmark/B70_gpu_dropout_20260821.md` for detailed incident log and mainboard notes.
+
+**Multi-GPU / known issues note (from upstream):**
+At the time of this image, 26.x compute-runtime had a known issue with certain multi-GPU setups (see ggml-org/llama.cpp#21747).
+
