@@ -11,18 +11,18 @@ ARG APP_REVISION=N/A
 ## Build Image (web UI)
 
 ARG NODE_VERSION=24
+ARG BUILD_WEBUI=0
 
 FROM docker.io/node:$NODE_VERSION AS web
 
 ARG APP_VERSION
+ARG BUILD_WEBUI
 
 WORKDIR /app/tools/ui
 
-COPY tools/ui/package.json tools/ui/package-lock.json ./
-RUN npm ci
-
-COPY tools/ui/ ./
-RUN LLAMA_BUILD_NUMBER="$APP_VERSION" npm run build
+# Make web UI optional. In this community repo the source may live under llama.cpp/tools/ui
+# or be absent (server-only image). Create a stub dist when not building the UI.
+RUN mkdir -p dist &&     if [ "$BUILD_WEBUI" = "1" ]; then       for src in /tmp/src/tools/ui /context/tools/ui tools/ui llama.cpp/tools/ui; do         if [ -f "$src/package.json" ]; then           echo "Found web UI source at $src";           cp "$src"/package*.json ./ 2>/dev/null || true;           cp -r "$src"/* ./ 2>/dev/null || true;           npm ci --prefer-offline || true;           LLAMA_BUILD_NUMBER="$APP_VERSION" npm run build || true;           break;         fi;       done;     fi &&     if [ ! -f dist/index.html ]; then       echo '<!doctype html><html><head><meta charset="utf-8"><title>llama.cpp</title></head><body><h1>Web UI not built</h1><p>This image was built with BUILD_WEBUI=0 (server-only). Rebuild with --build-arg BUILD_WEBUI=1 if you have the tools/ui sources.</p></body></html>' > dist/index.html;     fi
 
 FROM docker.io/intel/deep-learning-essentials:$ONEAPI_VERSION AS build
 
@@ -44,7 +44,8 @@ WORKDIR /app
 
 COPY . .
 
-COPY --from=web /app/tools/ui/dist tools/ui/dist
+RUN mkdir -p tools/ui/dist
+COPY --from=web /app/tools/ui/dist tools/ui/dist || true
 
 # Build with SYCL + dynamic backends + all CPU variants.
 # NO GGML_SYCL_DISABLE_OPT (that hurts plain llama.cpp SYCL perf)
