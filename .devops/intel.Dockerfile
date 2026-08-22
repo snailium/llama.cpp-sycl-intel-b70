@@ -3,7 +3,7 @@
 # Goal: Latest components, all features enabled (Flash Attention, MTP/spec-dec, etc.)
 # Do NOT disable optimizations.
 
-ARG ONEAPI_VERSION=2026.1-devel-ubuntu24.04
+ARG ONEAPI_VERSION=2026.1.2-devel-ubuntu24.04
 ARG BUILD_DATE=N/A
 ARG APP_VERSION=N/A
 ARG APP_REVISION=N/A
