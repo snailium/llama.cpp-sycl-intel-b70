@@ -17,7 +17,14 @@ on:
           - auto
           - stable
           - dev
-
+  # Dummy push trigger that never matches real branches.
+  # This prevents GitHub from creating a "push" workflow run every time we edit the workflow file.
+  # Real builds only happen via schedule or manual workflow_dispatch.
+  push:
+    branches:
+      - 'do-not-use-this-for-real-builds-xyz123'
+    paths:
+      - '.github/workflows/build-b70-on-upstream.yml'
 jobs:
   build-stable:
     # Run on main branch schedule or explicit stable dispatch
