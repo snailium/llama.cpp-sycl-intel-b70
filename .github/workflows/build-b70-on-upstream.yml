@@ -137,11 +137,12 @@ jobs:
             });
 
   build-weekly-dev:
-    # Weekly schedule or explicit dev dispatch
+    # Weekly (Monday 09:00 UTC) schedule or explicit 'dev' dispatch.
+    # The job does `ref: dev` checkout so it uses dev-branch Dockerfile + source.
     if: |
-      (github.event.schedule == '0 9 * * 1') ||
+      (github.event.schedule == '0 9 * * 1') ||   # Monday cron (runs on default=main but we checkout dev)
       (github.event.inputs.mode == 'dev') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'auto' && github.ref_name == 'dev')
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'dev')
     runs-on: ubuntu-latest
     permissions:
       contents: read
