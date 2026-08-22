@@ -107,6 +107,7 @@ jobs:
             ghcr.io/${{ github.repository }}/llama-sycl-b70:${{ steps.tag.outputs.image_tag }}
           build-args: |
             ONEAPI_VERSION=2026.1.2-devel-ubuntu24.04
+            BUILD_WEBUI=0
             GGML_SYCL_F16=ON
             GGML_SYCL_DEVICE_ARCH=bmg-g31
           cache-from: type=gha
@@ -228,6 +229,7 @@ jobs:
             ghcr.io/${{ github.repository }}/llama-sycl-b70:${{ steps.tag.outputs.image_tag }}
           build-args: |
             ONEAPI_VERSION=2026.1.2-devel-ubuntu24.04
+            BUILD_WEBUI=0
             GGML_SYCL_F16=ON
             GGML_SYCL_DEVICE_ARCH=bmg-g31
           cache-from: type=gha
