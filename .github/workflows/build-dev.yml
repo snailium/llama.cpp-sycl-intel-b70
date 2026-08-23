@@ -1,0 +1,246 @@
+name: Build Dev (dev branch)
+
+on:
+  schedule:
+    # Weekly dev build — Saturday 00:00 UTC
+    - cron: '0 0 * * 6'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force build even if logic says skip'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  check-and-build-dev:
+    # Only run when on dev branch
+    if: |
+      github.ref_name == 'dev' ||
+      (github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      issues: write
+
+    steps:
+      - name: Checkout dev branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: dev
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # ============================================================
+      # 1. Parse current pins (same as stable)
+      # ============================================================
+      - name: Parse current dependency pins
+        id: current
+        run: |
+          DF=.devops/intel.Dockerfile
+          ONEAPI=$(grep '^ARG ONEAPI_VERSION=' "$DF" | head -1 | cut -d= -f2)
+          IGC=$(grep '^ARG IGC_VERSION=' "$DF" | head -1 | cut -d= -f2)
+          COMPUTE=$(grep '^ARG COMPUTE_RUNTIME_VERSION=' "$DF" | head -1 | cut -d= -f2)
+          L0=$(grep '^ARG LEVEL_ZERO_VERSION=' "$DF" | head -1 | cut -d= -f2)
+
+          echo "current_oneapi=$ONEAPI" >> $GITHUB_OUTPUT
+          echo "current_igc=$IGC" >> $GITHUB_OUTPUT
+          echo "current_compute=$COMPUTE" >> $GITHUB_OUTPUT
+          echo "current_level_zero=$L0" >> $GITHUB_OUTPUT
+
+      # ============================================================
+      # 2. Fetch llama.cpp latest tag + decide 2a vs 2b
+      # ============================================================
+      - name: Fetch upstream llama.cpp latest v* and b* tags
+        id: llama
+        run: |
+          git remote add upstream https://github.com/ggml-org/llama.cpp.git 2>/dev/null || true
+          git fetch upstream --tags --force
+
+          LATEST_V=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^v[0-9]' | head -1)
+          LATEST_B=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^b[0-9]+' | head -1)
+
+          echo "latest_v=$LATEST_V" >> $GITHUB_OUTPUT
+          echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
+
+          V_DATE=$(git for-each-ref --format='%(creatordate:iso8601)' "refs/tags/$LATEST_V" 2>/dev/null || echo "1970-01-01")
+          B_DATE=$(git for-each-ref --format='%(creatordate:iso8601)' "refs/tags/$LATEST_B" 2>/dev/null || echo "1970-01-01")
+
+          echo "v_date=$V_DATE" >> $GITHUB_OUTPUT
+          echo "b_date=$B_DATE" >> $GITHUB_OUTPUT
+
+          if [[ "$B_DATE" > "$V_DATE" ]]; then
+            echo "is_release_tag=false" >> $GITHUB_OUTPUT
+            echo "Latest is b tag ($LATEST_B) newer than v ($LATEST_V) — will build dev"
+          else
+            echo "is_release_tag=true" >> $GITHUB_OUTPUT
+            echo "Latest tag is v* release ($LATEST_V), no newer b tag — skip dev build"
+          fi
+
+      # ============================================================
+      # 3. Detect latest dependencies (always use latest for dev)
+      # ============================================================
+      - name: Detect latest Intel stack (for dev)
+        id: deps
+        run: |
+          LATEST_COMPUTE=$(curl -s https://api.github.com/repos/intel/compute-runtime/releases/latest | jq -r '.tag_name')
+          LATEST_IGC=$(curl -s https://api.github.com/repos/intel/intel-graphics-compiler/releases/latest | jq -r '.tag_name')
+          LATEST_L0=$(curl -s https://api.github.com/repos/oneapi-src/level-zero/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+          LATEST_ONEAPI=$(curl -s "https://hub.docker.com/v2/repositories/intel/deep-learning-essentials/tags/?page_size=20" | \
+                          jq -r '.results[] | select(.name | contains("devel-ubuntu24.04")) | .name' | sort -r | head -1)
+
+          echo "latest_compute=$LATEST_COMPUTE" >> $GITHUB_OUTPUT
+          echo "latest_igc=$LATEST_IGC" >> $GITHUB_OUTPUT
+          echo "latest_level_zero=$LATEST_L0" >> $GITHUB_OUTPUT
+          echo "latest_oneapi=${LATEST_ONEAPI:-2026.1.2-devel-ubuntu24.04}" >> $GITHUB_OUTPUT
+
+      # ============================================================
+      # 4. Decision logic (2a / 2b)
+      # ============================================================
+      - name: Decide dev build strategy
+        id: decide
+        run: |
+          IS_RELEASE="${{ steps.llama.outputs.is_release_tag }}"
+          LATEST_B="${{ steps.llama.outputs.latest_b }}"
+          FORCE="${{ github.event.inputs.force || 'false' }}"
+
+          if [[ "$FORCE" == "true" ]]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "strategy=force" >> $GITHUB_OUTPUT
+            echo "reason=Forced by manual dispatch" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            # 2a: Latest llama.cpp tag is v* (or no newer b) → skip build
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "strategy=point-to-stable" >> $GITHUB_OUTPUT
+            echo "reason=Latest llama.cpp tag is a release (v*). Suggest pointing dev image to latest stable." >> $GITHUB_OUTPUT
+          else
+            # 2b: Newer b* tag exists → build using that specific b tag
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "strategy=build-dev" >> $GITHUB_OUTPUT
+            echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
+            echo "reason=Newer b tag $LATEST_B available. Building dev from b tag + latest dependencies." >> $GITHUB_OUTPUT
+          fi
+
+      # ============================================================
+      # 5. 2a path: Skip build, create guidance issue
+      # ============================================================
+      - name: Create guidance issue (2a - point dev to stable)
+        if: steps.decide.outputs.strategy == 'point-to-stable'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const latest = '${{ steps.llama.outputs.latest_v }}';
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `B70 Dev: Latest llama.cpp is release tag (${latest}) — align dev image?`,
+              body: `**Analysis**\n\n` +
+                    `The latest tag on ggml-org/llama.cpp is **${latest}** (a release / v* tag).\n\n` +
+                    `Per current policy, the dev branch should usually track a stable release until new dev work appears.\n\n` +
+                    `**Recommended action**\n` +
+                    `1. Update any dev references / examples / docker-compose to use the latest stable image.\n` +
+                    `2. Optionally create a dev tag that points at the current stable image (e.g. \`server-dev-${latest}\`).\n\n` +
+                    `If you want to force a dev build anyway, re-run this workflow with \`force: true\`.`,
+              labels: ['dev', 'B70']
+            });
+
+      # ============================================================
+      # 6. 2b path: Build dev image
+      # ============================================================
+      - name: Set up Docker Buildx
+        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clone llama.cpp at latest b tag (for dev)
+        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        id: clone
+        run: |
+          LATEST_B="${{ steps.llama.outputs.latest_b }}"
+          echo "Cloning llama.cpp at b tag: $LATEST_B (not main)"
+          rm -rf llama.cpp
+          git clone --depth 1 --branch "$LATEST_B" https://github.com/ggml-org/llama.cpp llama.cpp
+          cd llama.cpp
+          echo "Using b tag: $LATEST_B"
+
+      - name: Compute dev temporary tag
+        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        id: tag
+        run: |
+          LATEST_B="${{ steps.llama.outputs.latest_b }}"
+          DATE=$(date +%Y%m%d-%H%M)
+          TAG="server-${LATEST_B}-weekly-${DATE}"
+          echo "image_tag=$TAG" >> $GITHUB_OUTPUT
+          echo "full_image=ghcr.io/${{ github.repository }}/llama-sycl-b70:${TAG}" >> $GITHUB_OUTPUT
+          echo "Dev temp tag: $TAG (based on $LATEST_B)"
+
+      - name: Build and push (dev candidate)
+        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devops/intel.Dockerfile
+          target: server
+          push: true
+          tags: ghcr.io/${{ github.repository }}/llama-sycl-b70:${{ steps.tag.outputs.image_tag }}
+          build-args: |
+            ONEAPI_VERSION=${{ steps.deps.outputs.latest_oneapi }}
+            IGC_VERSION=${{ steps.deps.outputs.latest_igc }}
+            COMPUTE_RUNTIME_VERSION=${{ steps.deps.outputs.latest_compute }}
+            LEVEL_ZERO_VERSION=${{ steps.deps.outputs.latest_level_zero }}
+            BUILD_WEBUI=0
+            GGML_SYCL_F16=ON
+            GGML_SYCL_DEVICE_ARCH=bmg-g31
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create detailed Issue (dev build)
+        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ steps.tag.outputs.image_tag }}';
+            const full = '${{ steps.tag.outputs.full_image }}';
+            const reason = '${{ steps.decide.outputs.reason }}';
+
+            let body = `**Dev weekly build**\n\n`;
+            body += `**Image**: \`${full}\`\n`;
+            body += `**llama.cpp b tag**: ${{ steps.llama.outputs.latest_b }}\n`;
+            body += `**Build**: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n`;
+
+            body += `### Dependency versions used in this build\n`;
+            body += `- ONEAPI: ${{ steps.deps.outputs.latest_oneapi }}\n`;
+            body += `- IGC: ${{ steps.deps.outputs.latest_igc }}\n`;
+            body += `- Compute Runtime: ${{ steps.deps.outputs.latest_compute }}\n`;
+            body += `- Level Zero: ${{ steps.deps.outputs.latest_level_zero }}\n\n`;
+
+            body += `**Reason**: ${reason}\n\n`;
+
+            body += `### Next steps on B70\n`;
+            body += `1. Pull: \`docker pull ${full}\`\n`;
+            body += `2. Test (MTP + long context recommended)\n`;
+            body += `3. When happy, create a proper dev tag (e.g. \`server-dev-YYYYMMDD\` or point \`dev\` tag).\n\n`;
+            body += `This is a development snapshot. Use at your own risk.`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `B70 Dev Image Ready: ${tag}`,
+              body: body,
+              labels: ['dev', 'B70']
+            });

@@ -17,11 +17,15 @@ We welcome contributions that keep the Intel Arc B-Series (especially B70) exper
 
 1. Fork or clone this repo.
 2. Update `.devops/intel.Dockerfile` (or docs) with new versions + rationale.
-3. Test on real B70 if possible.
+3. Test on real B70 if possible (highly recommended for dep bumps).
 4. Open a PR with:
    - Summary of the change
    - Benchmark numbers (pp512 / tg128 or similar for a 27B model)
    - Verification that Flash Attention and MTP paths still work
+
+**Note on CI**: The repository uses two separate GitHub workflows (`build-stable.yml` and `build-dev.yml`). They automatically detect updates to llama.cpp and all Intel dependencies (compute-runtime, IGC, Level Zero, oneAPI base). When they build, they create temporary tags and open a GitHub Issue with diffs. The maintainer then tests on real hardware before creating final tags.
+
+You do **not** need to manually trigger builds for most pin updates — the scheduled workflows will catch them. However, PRs that include local benchmark results on B70 are still very welcome.
 
 ## Scope
 

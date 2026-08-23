@@ -1,0 +1,268 @@
+name: Build Stable (main)
+
+on:
+  schedule:
+    # Every 4 hours: check llama.cpp + all Intel dependencies for updates
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-and-build-stable:
+    # Only run on main branch (schedule or manual)
+    if: |
+      github.ref_name == 'main' ||
+      (github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      issues: write
+
+    steps:
+      - name: Checkout repository (main)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # ============================================================
+      # 1. Detect current pins from Dockerfile
+      # ============================================================
+      - name: Parse current dependency pins from Dockerfile
+        id: current
+        run: |
+          DF=.devops/intel.Dockerfile
+
+          ONEAPI=$(grep '^ARG ONEAPI_VERSION=' "$DF" | head -1 | cut -d= -f2)
+          IGC=$(grep '^ARG IGC_VERSION=' "$DF" | head -1 | cut -d= -f2)
+          IGC_FULL=$(grep '^ARG IGC_VERSION_FULL=' "$DF" | head -1 | cut -d= -f2)
+          COMPUTE=$(grep '^ARG COMPUTE_RUNTIME_VERSION=' "$DF" | head -1 | cut -d= -f2)
+          COMPUTE_FULL=$(grep '^ARG COMPUTE_RUNTIME_VERSION_FULL=' "$DF" | head -1 | cut -d= -f2)
+          IGDGMM=$(grep '^ARG IGDGMM_VERSION=' "$DF" | head -1 | cut -d= -f2)
+          L0=$(grep '^ARG LEVEL_ZERO_VERSION=' "$DF" | head -1 | cut -d= -f2)
+
+          echo "current_oneapi=$ONEAPI" >> $GITHUB_OUTPUT
+          echo "current_igc=$IGC" >> $GITHUB_OUTPUT
+          echo "current_igc_full=$IGC_FULL" >> $GITHUB_OUTPUT
+          echo "current_compute=$COMPUTE" >> $GITHUB_OUTPUT
+          echo "current_compute_full=$COMPUTE_FULL" >> $GITHUB_OUTPUT
+          echo "current_igdgmm=$IGDGMM" >> $GITHUB_OUTPUT
+          echo "current_level_zero=$L0" >> $GITHUB_OUTPUT
+
+          echo "Current pins:"
+          echo "  ONEAPI: $ONEAPI"
+          echo "  IGC: $IGC / $IGC_FULL"
+          echo "  Compute: $COMPUTE / $COMPUTE_FULL"
+          echo "  IGDGMM: $IGDGMM"
+          echo "  LevelZero: $L0"
+
+      # ============================================================
+      # 2. Detect latest llama.cpp v* tag
+      # ============================================================
+      - name: Detect latest llama.cpp stable (v*) tag
+        id: llama
+        run: |
+          git remote add upstream https://github.com/ggml-org/llama.cpp.git 2>/dev/null || true
+          git fetch upstream --tags --force
+
+          LATEST_V=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^v[0-9]' | head -1)
+          echo "latest_v=$LATEST_V" >> $GITHUB_OUTPUT
+
+          # Get the commit date of that tag
+          V_DATE=$(git for-each-ref --format='%(creatordate:iso8601)' "refs/tags/$LATEST_V")
+          echo "v_date=$V_DATE" >> $GITHUB_OUTPUT
+
+          echo "Latest upstream stable: $LATEST_V (date: $V_DATE)"
+
+      # ============================================================
+      # 3. Detect latest Intel dependencies
+      # ============================================================
+      - name: Detect latest Compute Runtime
+        id: compute
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/intel/compute-runtime/releases/latest | jq -r '.tag_name')
+          echo "latest_compute=$LATEST" >> $GITHUB_OUTPUT
+          echo "Latest compute-runtime: $LATEST"
+
+      - name: Detect latest IGC
+        id: igc
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/intel/intel-graphics-compiler/releases/latest | jq -r '.tag_name')
+          echo "latest_igc=$LATEST" >> $GITHUB_OUTPUT
+          echo "Latest IGC: $LATEST"
+
+      - name: Detect latest Level Zero
+        id: levelzero
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/oneapi-src/level-zero/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+          echo "latest_level_zero=$LATEST" >> $GITHUB_OUTPUT
+          echo "Latest Level Zero: $LATEST"
+
+      - name: Detect latest oneAPI devel base image
+        id: oneapi
+        run: |
+          # Look for the newest devel-ubuntu24.04 style tag
+          TAGS=$(curl -s "https://hub.docker.com/v2/repositories/intel/deep-learning-essentials/tags/?page_size=20" | \
+                 jq -r '.results[] | select(.name | contains("devel-ubuntu24.04")) | .name' | sort -r | head -1)
+          echo "latest_oneapi=${TAGS:-2026.1.2-devel-ubuntu24.04}" >> $GITHUB_OUTPUT
+          echo "Latest oneAPI devel base: ${TAGS:-2026.1.2-devel-ubuntu24.04}"
+
+      # ============================================================
+      # 4. Decide whether to build (llama v new OR any dep newer)
+      # ============================================================
+      - name: Decide if build is needed
+        id: decide
+        run: |
+          SHOULD_BUILD=false
+          REASON=""
+
+          LATEST_V="${{ steps.llama.outputs.latest_v }}"
+          LATEST_V_DATE="${{ steps.llama.outputs.v_date }}"
+
+          # Compare against current llama.cpp checkout date in the repo (if any)
+          if [ -d llama.cpp ]; then
+            CURRENT_DATE=$(git log -1 --format=%ci -- llama.cpp 2>/dev/null || echo "1970-01-01T00:00:00Z")
+          else
+            CURRENT_DATE="1970-01-01T00:00:00Z"
+          fi
+
+          echo "current_llama_date=$CURRENT_DATE" >> $GITHUB_OUTPUT
+
+          if [[ "$LATEST_V_DATE" > "$CURRENT_DATE" ]]; then
+            SHOULD_BUILD=true
+            REASON="Newer llama.cpp stable tag: $LATEST_V"
+          fi
+
+          # Dep updates always trigger (even without new llama.cpp v)
+          if [[ "${{ steps.current.outputs.current_compute }}" != "${{ steps.compute.outputs.latest_compute }}" ]]; then
+            SHOULD_BUILD=true
+            REASON="$REASON + New compute-runtime ${{ steps.compute.outputs.latest_compute }}"
+          fi
+          if [[ "${{ steps.current.outputs.current_igc }}" != "${{ steps.igc.outputs.latest_igc }}" ]]; then
+            SHOULD_BUILD=true
+            REASON="$REASON + New IGC ${{ steps.igc.outputs.latest_igc }}"
+          fi
+          if [[ "${{ steps.current.outputs.current_level_zero }}" != "${{ steps.levelzero.outputs.latest_level_zero }}" ]]; then
+            SHOULD_BUILD=true
+            REASON="$REASON + New Level Zero ${{ steps.levelzero.outputs.latest_level_zero }}"
+          fi
+          if [[ "${{ steps.current.outputs.current_oneapi }}" != "${{ steps.oneapi.outputs.latest_oneapi }}" ]]; then
+            SHOULD_BUILD=true
+            REASON="$REASON + New oneAPI base ${{ steps.oneapi.outputs.latest_oneapi }}"
+          fi
+
+          echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+          echo "build_reason=${REASON:-No change detected}" >> $GITHUB_OUTPUT
+
+          echo "=== Build decision ==="
+          echo "should_build=$SHOULD_BUILD"
+          echo "reason: $REASON"
+      # ============================================================
+      # 5. Build stage (only if needed)
+      # ============================================================
+      - name: Set up Docker Buildx
+        if: steps.decide.outputs.should_build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: steps.decide.outputs.should_build == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clone fresh llama.cpp at latest stable v tag
+        if: steps.decide.outputs.should_build == 'true'
+        run: |
+          LATEST_V="${{ steps.llama.outputs.latest_v }}"
+          echo "Cloning llama.cpp at $LATEST_V for stable build"
+          rm -rf llama.cpp
+          git clone --depth 1 --branch "$LATEST_V" https://github.com/ggml-org/llama.cpp llama.cpp
+
+      - name: Compute temporary stable tag
+        if: steps.decide.outputs.should_build == 'true'
+        id: tag
+        run: |
+          LATEST_V="${{ steps.llama.outputs.latest_v }}"
+          DATE=$(date +%Y%m%d-%H%M)
+          TAG="server-${LATEST_V}-${DATE}"
+          echo "image_tag=$TAG" >> $GITHUB_OUTPUT
+          echo "full_image=ghcr.io/${{ github.repository }}/llama-sycl-b70:${TAG}" >> $GITHUB_OUTPUT
+          echo "Using temporary tag: $TAG"
+
+      - name: Build and push (stable candidate)
+        if: steps.decide.outputs.should_build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devops/intel.Dockerfile
+          target: server
+          push: true
+          tags: ghcr.io/${{ github.repository }}/llama-sycl-b70:${{ steps.tag.outputs.image_tag }}
+          build-args: |
+            ONEAPI_VERSION=${{ steps.oneapi.outputs.latest_oneapi }}
+            IGC_VERSION=${{ steps.igc.outputs.latest_igc }}
+            COMPUTE_RUNTIME_VERSION=${{ steps.compute.outputs.latest_compute }}
+            LEVEL_ZERO_VERSION=${{ steps.levelzero.outputs.latest_level_zero }}
+            BUILD_WEBUI=0
+            GGML_SYCL_F16=ON
+            GGML_SYCL_DEVICE_ARCH=bmg-g31
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ============================================================
+      # 6. Create detailed GitHub Issue
+      # ============================================================
+      - name: Create GitHub Issue with diff (stable)
+        if: steps.decide.outputs.should_build == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ steps.tag.outputs.image_tag }}';
+            const full = '${{ steps.tag.outputs.full_image }}';
+            const v = '${{ steps.llama.outputs.latest_v }}';
+
+            const current = {
+              oneapi: '${{ steps.current.outputs.current_oneapi }}',
+              igc: '${{ steps.current.outputs.current_igc }}',
+              compute: '${{ steps.current.outputs.current_compute }}',
+              levelzero: '${{ steps.current.outputs.current_level_zero }}'
+            };
+            const latest = {
+              oneapi: '${{ steps.oneapi.outputs.latest_oneapi }}',
+              igc: '${{ steps.igc.outputs.latest_igc }}',
+              compute: '${{ steps.compute.outputs.latest_compute }}',
+              levelzero: '${{ steps.levelzero.outputs.latest_level_zero }}'
+            };
+
+            let diff = `**Stable candidate build**\n\n`;
+            diff += `**Image**: \`${full}\`\n`;
+            diff += `**llama.cpp**: ${v}\n`;
+            diff += `**Build**: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n`;
+
+            diff += `### Changes\n`;
+            diff += `- llama.cpp: ${v}\n`;
+            if (current.oneapi !== latest.oneapi) diff += `- ONEAPI base: ${current.oneapi} → ${latest.oneapi}\n`;
+            if (current.igc !== latest.igc) diff += `- IGC: ${current.igc} → ${latest.igc}\n`;
+            if (current.compute !== latest.compute) diff += `- Compute Runtime: ${current.compute} → ${latest.compute}\n`;
+            if (current.levelzero !== latest.levelzero) diff += `- Level Zero: ${current.levelzero} → ${latest.levelzero}\n`;
+
+            diff += `\n### Next steps (on your B70 .102)\n`;
+            diff += `1. Pull the candidate:\n`;
+            diff += `   docker pull ${full}\n\n`;
+            diff += `2. Test thoroughly (especially MTP + 128k + q8_0)\n`;
+            diff += `3. If good, promote (create a clean release tag, e.g. server-${v} or latest-stable)\n\n`;
+            diff += `Reason: ${{ steps.decide.outputs.build_reason }}`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `B70 Stable Image Ready: ${tag}`,
+              body: diff,
+              labels: ['stable', 'B70']
+            });

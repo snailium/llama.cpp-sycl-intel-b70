@@ -122,3 +122,17 @@ See also `benchmark/B70_gpu_dropout_20260821.md` for detailed incident log and m
 **Multi-GPU / known issues note (from upstream):**
 At the time of this image, 26.x compute-runtime had a known issue with certain multi-GPU setups (see ggml-org/llama.cpp#21747).
 
+
+## CI / Auto-build behavior (new)
+
+We maintain two separate GitHub workflows instead of one combined file:
+
+- **Stable** (`build-stable.yml` on main): runs every 4 hours. Tracks both the latest `v*` tag from llama.cpp **and** all Intel dependencies (compute-runtime, IGC, Level Zero, oneAPI base image). Any change triggers a build with a temporary tag (`server-vX.Y-YYYYMMDD-HHMM`) and opens a detailed Issue.
+
+- **Dev** (`build-dev.yml` on dev branch): runs every Saturday at 00:00 UTC.
+  - If the latest llama.cpp tag is a release (`v*`), it skips the build and opens an issue suggesting you align the dev image to the latest stable.
+  - Otherwise it builds from the latest upstream main commit + the absolute latest available dependencies.
+
+In both cases the image is pushed as a **candidate** (temporary tag). The maintainer is expected to pull it to the real B70, test thoroughly, and only then create a proper named tag (e.g. `server-v1.XX` or a `dev` pointer).
+
+You can still bump pins manually in the Dockerfile — the next scheduled run will detect the difference if desired.

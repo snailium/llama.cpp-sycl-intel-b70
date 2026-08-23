@@ -122,16 +122,26 @@ Then run with the env vars above.
 
 We explicitly do **not** set `GGML_SYCL_DISABLE_OPT`.
 
-## Updating the stack
+## CI / Automatic builds (new split workflow)
 
-Edit `.devops/intel.Dockerfile` and bump:
+We now use **two dedicated workflows**:
 
-- `ONEAPI_VERSION` (intel/deep-learning-essentials devel tag)
-- `IGC_VERSION` / `IGC_VERSION_FULL`
-- `COMPUTE_RUNTIME_VERSION`
-- `LEVEL_ZERO_VERSION`
+| Workflow                  | Branch | Schedule              | What it tracks                              | Behavior |
+|---------------------------|--------|-----------------------|---------------------------------------------|----------|
+| `build-stable.yml`        | main   | Every 4 hours         | llama.cpp `v*` tags + **all** Intel deps    | Build temp tag if anything changed → open Issue |
+| `build-dev.yml`           | dev    | Saturday 00:00 UTC    | llama.cpp + latest deps                     | 2a: if latest llama tag is `v*` → skip + guidance Issue<br>2b: clone the latest `b*` tag + latest deps, build temp tag + open Issue |
 
-Then rebuild and test on real B70 hardware with a 27B-class model.
+**Temporary tags** are created (e.g. `server-v1.XX-YYYYMMDD-HHMM` or `server-dev-...`).
+
+After the workflow opens a GitHub Issue with diffs, **you** (the maintainer) pull & test on the real B70 server. When satisfied, you create a proper release tag (or point `dev`).
+
+### Manual trigger
+- Go to Actions → choose `Build Stable` or `Build Dev` → Run workflow.
+
+### Updating pins manually (still supported)
+You can still edit `.devops/intel.Dockerfile` and bump versions. The next scheduled run (or manual trigger) will pick up the change if you want CI to validate it.
+
+See the two workflow files for exact logic.
 
 Test matrix we care about:
 - Qwen3 / Qwen3.6 27B dense + MTP variants (Q4_K_M, Q5_K etc.)
