@@ -7,37 +7,41 @@ services:
       dockerfile: .devops/intel.Dockerfile
       target: server
       args:
-        ONEAPI_VERSION: "2026.1-devel-ubuntu24.04"
+        ONEAPI_VERSION: "2026.1.2-devel-ubuntu24.04"
         GGML_SYCL_F16: "ON"
         GGML_SYCL_DEVICE_ARCH: "bmg-g31"
-        # Override compute runtime pins here if needed
-        # IGC_VERSION: "v2.34.4"
-        # COMPUTE_RUNTIME_VERSION: "26.18.38308.1"
     image: llama.cpp-sycl-b70:server
     container_name: llama-sycl-b70
     restart: unless-stopped
     ports:
       - "8080:8080"
     devices:
-      # Adjust renderD* / card* to match your B70
       - /dev/dri/renderD128:/dev/dri/renderD128
       - /dev/dri/card0:/dev/dri/card0
     volumes:
-      - /mnt/models:/models:ro   # mount your GGUF models here
+      - /mnt/models:/models:ro
     environment:
       - ONEAPI_DEVICE_SELECTOR=level_zero:0
       - SYCL_CACHE_PERSISTENT=0
       - ZES_ENABLE_SYSMAN=1
-      # LLAMA_ARG_ are passed to the server binary
       - LLAMA_ARG_HOST=0.0.0.0
-    # Example command override (or put in entrypoint args)
-    command: >
-      -m /models/Qwen3-27B-Q4_K_M.gguf
-      --n-gpu-layers 999
-      --ctx-size 32768
-      --flash-attn
-      --port 8080
-      --host 0.0.0.0
+    command:
+      - -m
+      - /models/Qwen3.8-27B-Q4_K_M.gguf
+      - --n-gpu-layers
+      - "999"
+      - --ctx-size
+      - --cache-type-k
+      - "q8_0"
+      - --cache-type-v
+      - "q8_0"
+      - "131072"
+      - --flash-attn
+      - "on"
+      - --port
+      - "8080"
+      - --host
+      - 0.0.0.0
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s

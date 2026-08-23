@@ -26,4 +26,4 @@
 - Add benchmark data in issues/PRs
 - Improve docs for multi-GPU or specific model families
 
-Last updated: $(date -Iseconds)
+Last updated: 2026-08-22T17:33:39-04:00

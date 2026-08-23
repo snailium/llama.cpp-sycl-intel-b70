@@ -21,7 +21,7 @@ docker build \
   --target server \
   -t llama.cpp-sycl-b70:server \
   -f .devops/intel.Dockerfile \
-  --build-arg ONEAPI_VERSION=2026.1-devel-ubuntu24.04 \
+  --build-arg ONEAPI_VERSION=2026.1.2-devel-ubuntu24.04 \
   --build-arg GGML_SYCL_F16=ON \
   --build-arg GGML_SYCL_DEVICE_ARCH=bmg-g31 \
   .
@@ -54,8 +54,10 @@ docker run --rm -it \
   llama.cpp-sycl-b70:server \
   -m /models/Qwen3-27B-Q4_K_M.gguf \
   --n-gpu-layers 999 \
-  --ctx-size 32768 \
-  --flash-attn \
+  --ctx-size 131072 \
+  --cache-type-k q8_0 \
+  --cache-type-v q8_0 \
+  --flash-attn on \
   --port 8080 --host 0.0.0.0
 ```
 
@@ -83,10 +85,10 @@ docker run ... \
 From community testing (B70 + SYCL):
 
 - `--n-gpu-layers 999` (or very high)
-- `--flash-attn` (enabled in this build)
-- Default KV cache is f16 — **avoid Q8_0 KV** on B70 (broken kernel path, huge perf loss)
+- `--flash-attn on` (or auto). SYCL backend supports it.
+- Default KV: f16 safe for short ctx. For MTP + 96k-128k, q8_0 KV is the current recommended lifeline (see benchmark/B70_llamacpp_mtp4_128k_q8_20260821.md)
 - `--ctx-size` as large as VRAM allows (many run 24k-32k+)
-- For MTP/speculative: use a draft model + `--draft` flags (the binary supports it; nothing is disabled here)
+- For MTP/speculative: use a draft model + `--spec-draft-model` + `--spec-type draft-mtp` (or `-md`) (the binary supports it; nothing is disabled here)
 
 For Qwen3 MTP quants (Unsloth-style etc.), the server binary supports draft models. Test with your specific GGUF.
 

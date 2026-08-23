@@ -1,0 +1,16 @@
+# Keep build context small for faster + safer builds
+.git
+.gitignore
+benchmark/
+dsh_results/
+*.log
+*.md
+!README.md
+!docs/B70-TUNING.md
+!CONTRIBUTING.md
+!STATUS.md
+node_modules/
+.vscode/
+.idea/
+*.swp
+.DS_Store
