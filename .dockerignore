@@ -9,7 +9,6 @@ dsh_results/
 !docs/B70-TUNING.md
 !CONTRIBUTING.md
 !STATUS.md
-!SETUP-GITHUB.md
 node_modules/
 .vscode/
 .idea/

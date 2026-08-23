@@ -38,7 +38,11 @@ RUN apt-get update && \
     wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero.deb && \
     wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero-devel_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero-devel.deb && \
     apt-get -o Dpkg::Options::="--force-overwrite" install -y ./level-zero.deb ./level-zero-devel.deb && \
-    rm -f /tmp/level-zero.deb /tmp/level-zero-devel.deb
+    rm -f /tmp/level-zero.deb /tmp/level-zero-devel.deb && \
+    # Install ocloc for AOT (bmg-g31) - required at link time for spir64_gen
+    wget -q "https://github.com/intel/compute-runtime/releases/download/26.18.38308.1/intel-ocloc_26.18.38308.1-0_amd64.deb" -O /tmp/ocloc.deb && \
+    apt-get -o Dpkg::Options::="--force-overwrite" install -y /tmp/ocloc.deb && \
+    rm -f /tmp/ocloc.deb
 
 WORKDIR /app
 
@@ -56,6 +60,8 @@ RUN if [ "${GGML_SYCL_F16}" = "ON" ]; then \
         && export SYCL_PROGRAM_COMPILE_OPTIONS="-cl-fp32-correctly-rounded-divide-sqrt"; \
     fi && \
     echo "Building with dynamic libs + Battlemage AOT (bmg-g31)" && \
+    export PATH="/opt/intel/oneapi/compiler/2026.1/bin:/usr/bin:$PATH" && \
+    which ocloc || echo "ocloc not in PATH yet" && \
     cmake -S llama.cpp -B build \
       -DGGML_NATIVE=OFF \
       -DGGML_SYCL=ON \

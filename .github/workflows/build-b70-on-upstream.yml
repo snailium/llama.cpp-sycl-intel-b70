@@ -17,14 +17,7 @@ on:
           - auto
           - stable
           - dev
-  # Dummy push trigger that never matches real branches.
-  # This prevents GitHub from creating a "push" workflow run every time we edit the workflow file.
-  # Real builds only happen via schedule or manual workflow_dispatch.
-  push:
-    branches:
-      - 'do-not-use-this-for-real-builds-xyz123'
-    paths:
-      - '.github/workflows/build-b70-on-upstream.yml'
+
 jobs:
   build-stable:
     # Run on main branch schedule or explicit stable dispatch
@@ -85,12 +78,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Temporary subtree pull for stable v
+      - name: Checkout fresh llama.cpp at tag (instead of broken subtree)
         if: steps.detect-v.outputs.should_build == 'true'
         run: |
           LATEST_V="${{ steps.detect-v.outputs.latest_v }}"
-          echo "Temporarily pulling $LATEST_V into subtree for build..."
-          git subtree pull --prefix=llama.cpp upstream "$LATEST_V" --squash -m "temp: pull $LATEST_V for build"
+          echo "Cloning fresh llama.cpp at $LATEST_V (avoids broken subtree split-hash)"
+          rm -rf llama.cpp
+          git clone --depth 1 --branch "$LATEST_V" https://github.com/ggml-org/llama.cpp llama.cpp
 
       - name: Compute immutable tag
         if: steps.detect-v.outputs.should_build == 'true'
@@ -207,12 +201,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Temporary subtree pull for latest b
+      - name: Checkout fresh llama.cpp at tag (instead of broken subtree)
         if: steps.detect-b.outputs.should_build == 'true'
         run: |
           LATEST_B="${{ steps.detect-b.outputs.latest_b }}"
-          echo "Temporarily pulling $LATEST_B into subtree for weekly dev build..."
-          git subtree pull --prefix=llama.cpp upstream "$LATEST_B" --squash -m "temp: pull $LATEST_B for dev build"
+          echo "Cloning fresh llama.cpp at $LATEST_B (avoids broken subtree split-hash)"
+          rm -rf llama.cpp
+          git clone --depth 1 --branch "$LATEST_B" https://github.com/ggml-org/llama.cpp llama.cpp
 
       - name: Compute immutable tag (weekly dev)
         if: steps.detect-b.outputs.should_build == 'true'

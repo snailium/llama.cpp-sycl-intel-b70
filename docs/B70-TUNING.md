@@ -56,7 +56,7 @@ export ZES_ENABLE_SYSMAN=1
 For pure text short context: f16 is fine and fastest. For MTP + large context (96k-128k+), q8_0 KV cache has proven to be the practical lifeline on B70 to avoid OOM (see benchmark reports).
 
 MTP / speculative decoding:
-- Use a draft model GGUF + the appropriate `--draft` / `--draft-model` flags supported by your build of llama-server.
+- Use a draft model GGUF + the appropriate `--spec-draft-model` (alias `-md`) + `--spec-type draft-mtp` flags supported by your build of llama-server.
 - Nothing in this image disables the speculative paths.
 
 Flash Attention:
