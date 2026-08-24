@@ -88,11 +88,16 @@ jobs:
           LATEST=$(echo "$REL" | jq -r '.tag_name')
           # Extract FULL from an ocloc deb asset, e.g. 26.31.39395.13-0
           FULL=$(echo "$REL" | jq -r '.assets[] | select(.name | contains("ocloc_") and endswith(".deb")) | .name' | head -1 | sed -E 's/.*ocloc_([0-9.-]+)_amd64.*/\1/')
-          # Fallback
           [ -z "$FULL" ] && FULL="${LATEST}-0"
+
+          # Extract IGDGMM version dynamically (e.g. libigdgmm12_22.10.0_amd64.deb)
+          IGDGMM=$(echo "$REL" | jq -r '.assets[] | select(.name | test("igdgmm|libigdgmm")) | .name' | head -1 | sed -E 's/.*libigdgmm[0-9]+_([0-9.]+)_amd64.*/\1/')
+          [ -z "$IGDGMM" ] && IGDGMM=""
+
           echo "latest_compute=$LATEST" >> $GITHUB_OUTPUT
           echo "latest_compute_full=$FULL" >> $GITHUB_OUTPUT
-          echo "Latest compute-runtime: $LATEST (full: $FULL)"
+          echo "latest_igdgmm=$IGDGMM" >> $GITHUB_OUTPUT
+          echo "Latest compute-runtime: $LATEST (full: $FULL, igdgmm: $IGDGMM)"
 
       - name: Detect latest IGC
         id: igc
@@ -110,7 +115,12 @@ jobs:
         id: levelzero
         run: |
           LATEST=$(curl -s https://api.github.com/repos/oneapi-src/level-zero/releases/latest | jq -r '.tag_name' | sed 's/^v//')
-          UBUNTU="u24.04"   # Ubuntu 24.04 deb suffix for level-zero
+
+          # Try to extract ubuntu suffix from any level-zero deb asset (e.g. level-zero_1.32.0+u24.04_amd64.deb)
+          UBUNTU=$(curl -s "https://api.github.com/repos/oneapi-src/level-zero/releases/latest" | \
+            jq -r '.assets[] | select(.name | test("level-zero_[0-9].*u[0-9]")) | .name' | head -1 | \
+            sed -E 's/.*\+u([0-9.]+).*/u\1/' | head -1)
+          # Fallback: derive from oneAPI tag later if empty
           echo "latest_level_zero=$LATEST" >> $GITHUB_OUTPUT
           echo "level_zero_ubuntu_version=$UBUNTU" >> $GITHUB_OUTPUT
           echo "Latest Level Zero: $LATEST (ubuntu: $UBUNTU)"
@@ -121,8 +131,15 @@ jobs:
           # Look for the newest devel-ubuntu24.04 style tag
           TAGS=$(curl -s "https://hub.docker.com/v2/repositories/intel/deep-learning-essentials/tags/?page_size=20" | \
                  jq -r '.results[] | select(.name | contains("devel-ubuntu24.04")) | .name' | sort -r | head -1)
-          echo "latest_oneapi=${TAGS:-2026.1.2-devel-ubuntu24.04}" >> $GITHUB_OUTPUT
-          echo "Latest oneAPI devel base: ${TAGS:-2026.1.2-devel-ubuntu24.04}"
+          ONEAPI_TAG=${TAGS:-}
+
+          # Derive ubuntu version dynamically from the oneAPI tag (e.g. ...ubuntu24.04 → u24.04)
+          UBUNTU_FROM_ONEAPI=$(echo "$ONEAPI_TAG" | sed -E 's/.*ubuntu([0-9.]+).*/u\1/')
+          [ -z "$UBUNTU_FROM_ONEAPI" ] && UBUNTU_FROM_ONEAPI="u24.04"
+
+          echo "latest_oneapi=$ONEAPI_TAG" >> $GITHUB_OUTPUT
+          echo "ubuntu_version_from_oneapi=$UBUNTU_FROM_ONEAPI" >> $GITHUB_OUTPUT
+          echo "Latest oneAPI devel base: $ONEAPI_TAG (derived ubuntu: $UBUNTU_FROM_ONEAPI)"
 
       # ============================================================
       # 4. Decide whether to build (llama v new OR any dep newer)
@@ -223,9 +240,9 @@ jobs:
             IGC_VERSION_FULL=${{ steps.igc.outputs.latest_igc_full }}
             COMPUTE_RUNTIME_VERSION=${{ steps.compute.outputs.latest_compute }}
             COMPUTE_RUNTIME_VERSION_FULL=${{ steps.compute.outputs.latest_compute_full }}
-            IGDGMM_VERSION=22.10.0
+            IGDGMM_VERSION=${{ steps.compute.outputs.latest_igdgmm }}
             LEVEL_ZERO_VERSION=${{ steps.levelzero.outputs.latest_level_zero }}
-            LEVEL_ZERO_UBUNTU_VERSION=${{ steps.levelzero.outputs.level_zero_ubuntu_version }}
+            LEVEL_ZERO_UBUNTU_VERSION=${{ steps.levelzero.outputs.level_zero_ubuntu_version || steps.oneapi.outputs.ubuntu_version_from_oneapi }}
             BUILD_WEBUI=0
             GGML_SYCL_F16=ON
             GGML_SYCL_DEVICE_ARCH=bmg-g31

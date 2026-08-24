@@ -93,6 +93,10 @@ jobs:
           COMPUTE_FULL=$(echo "$REL_COMPUTE" | jq -r '.assets[] | select(.name | contains("ocloc_") and endswith(".deb")) | .name' | head -1 | sed -E 's/.*ocloc_([0-9.-]+)_amd64.*/\1/')
           [ -z "$COMPUTE_FULL" ] && COMPUTE_FULL="${LATEST_COMPUTE}-0"
 
+          # Dynamic IGDGMM from compute-runtime assets
+          IGDGMM=$(echo "$REL_COMPUTE" | jq -r '.assets[] | select(.name | test("igdgmm|libigdgmm")) | .name' | head -1 | sed -E 's/.*libigdgmm[0-9]+_([0-9.]+)_amd64.*/\1/')
+          [ -z "$IGDGMM" ] && IGDGMM=""
+
           REL_IGC=$(curl -s https://api.github.com/repos/intel/intel-graphics-compiler/releases/latest)
           LATEST_IGC=$(echo "$REL_IGC" | jq -r '.tag_name')
           IGC_FULL=$(echo "$REL_IGC" | jq -r '.assets[] | select(.name | contains("igc-core-") and endswith(".deb")) | .name' | head -1 | sed -E 's/.*igc-core-([0-9_+.]+)_amd64.*/\1/')
@@ -101,14 +105,26 @@ jobs:
           LATEST_L0=$(curl -s https://api.github.com/repos/oneapi-src/level-zero/releases/latest | jq -r '.tag_name' | sed 's/^v//')
           LATEST_ONEAPI=$(curl -s "https://hub.docker.com/v2/repositories/intel/deep-learning-essentials/tags/?page_size=20" | \
                           jq -r '.results[] | select(.name | contains("devel-ubuntu24.04")) | .name' | sort -r | head -1)
+          ONEAPI_TAG=${LATEST_ONEAPI:-}
+
+          # Derive ubuntu version dynamically
+          UBUNTU_FROM_ONEAPI=$(echo "$ONEAPI_TAG" | sed -E 's/.*ubuntu([0-9.]+).*/u\1/')
+          [ -z "$UBUNTU_FROM_ONEAPI" ] && UBUNTU_FROM_ONEAPI=""
+
+          # Try level-zero asset for ubuntu suffix
+          UBUNTU_L0=$(curl -s "https://api.github.com/repos/oneapi-src/level-zero/releases/latest" | \
+            jq -r '.assets[] | select(.name | test("level-zero_[0-9].*u[0-9]")) | .name' | head -1 | \
+            sed -E 's/.*\+u([0-9.]+).*/u\1/' | head -1)
+          UBUNTU_FINAL=${UBUNTU_L0:-$UBUNTU_FROM_ONEAPI}
 
           echo "latest_compute=$LATEST_COMPUTE" >> $GITHUB_OUTPUT
           echo "latest_compute_full=$COMPUTE_FULL" >> $GITHUB_OUTPUT
+          echo "latest_igdgmm=$IGDGMM" >> $GITHUB_OUTPUT
           echo "latest_igc=$LATEST_IGC" >> $GITHUB_OUTPUT
           echo "latest_igc_full=$IGC_FULL" >> $GITHUB_OUTPUT
           echo "latest_level_zero=$LATEST_L0" >> $GITHUB_OUTPUT
-          echo "level_zero_ubuntu_version=u24.04" >> $GITHUB_OUTPUT
-          echo "latest_oneapi=${LATEST_ONEAPI:-2026.1.2-devel-ubuntu24.04}" >> $GITHUB_OUTPUT
+          echo "level_zero_ubuntu_version=$UBUNTU_FINAL" >> $GITHUB_OUTPUT
+          echo "latest_oneapi=$ONEAPI_TAG" >> $GITHUB_OUTPUT
 
       # ============================================================
       # 4. Decision logic (2a / 2b)
@@ -215,7 +231,7 @@ jobs:
             IGC_VERSION_FULL=${{ steps.deps.outputs.latest_igc_full }}
             COMPUTE_RUNTIME_VERSION=${{ steps.deps.outputs.latest_compute }}
             COMPUTE_RUNTIME_VERSION_FULL=${{ steps.deps.outputs.latest_compute_full }}
-            IGDGMM_VERSION=22.10.0
+            IGDGMM_VERSION=${{ steps.deps.outputs.latest_igdgmm }}
             LEVEL_ZERO_VERSION=${{ steps.deps.outputs.latest_level_zero }}
             LEVEL_ZERO_UBUNTU_VERSION=${{ steps.deps.outputs.level_zero_ubuntu_version }}
             BUILD_WEBUI=0
