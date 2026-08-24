@@ -84,23 +84,36 @@ jobs:
       - name: Detect latest Compute Runtime
         id: compute
         run: |
-          LATEST=$(curl -s https://api.github.com/repos/intel/compute-runtime/releases/latest | jq -r '.tag_name')
+          REL=$(curl -s https://api.github.com/repos/intel/compute-runtime/releases/latest)
+          LATEST=$(echo "$REL" | jq -r '.tag_name')
+          # Extract FULL from an ocloc deb asset, e.g. 26.31.39395.13-0
+          FULL=$(echo "$REL" | jq -r '.assets[] | select(.name | contains("ocloc_") and endswith(".deb")) | .name' | head -1 | sed -E 's/.*ocloc_([0-9.-]+)_amd64.*/\1/')
+          # Fallback
+          [ -z "$FULL" ] && FULL="${LATEST}-0"
           echo "latest_compute=$LATEST" >> $GITHUB_OUTPUT
-          echo "Latest compute-runtime: $LATEST"
+          echo "latest_compute_full=$FULL" >> $GITHUB_OUTPUT
+          echo "Latest compute-runtime: $LATEST (full: $FULL)"
 
       - name: Detect latest IGC
         id: igc
         run: |
-          LATEST=$(curl -s https://api.github.com/repos/intel/intel-graphics-compiler/releases/latest | jq -r '.tag_name')
+          REL=$(curl -s https://api.github.com/repos/intel/intel-graphics-compiler/releases/latest)
+          LATEST=$(echo "$REL" | jq -r '.tag_name')
+          # e.g. from asset intel-igc-core-2_2.40.13+22418_amd64.deb → 2_2.40.13+22418
+          FULL=$(echo "$REL" | jq -r '.assets[] | select(.name | contains("igc-core-") and endswith(".deb")) | .name' | head -1 | sed -E 's/.*igc-core-([0-9_+.]+)_amd64.*/\1/')
+          [ -z "$FULL" ] && FULL=""
           echo "latest_igc=$LATEST" >> $GITHUB_OUTPUT
-          echo "Latest IGC: $LATEST"
+          echo "latest_igc_full=$FULL" >> $GITHUB_OUTPUT
+          echo "Latest IGC: $LATEST (full: $FULL)"
 
       - name: Detect latest Level Zero
         id: levelzero
         run: |
           LATEST=$(curl -s https://api.github.com/repos/oneapi-src/level-zero/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+          UBUNTU="u24.04"   # Ubuntu 24.04 deb suffix for level-zero
           echo "latest_level_zero=$LATEST" >> $GITHUB_OUTPUT
-          echo "Latest Level Zero: $LATEST"
+          echo "level_zero_ubuntu_version=$UBUNTU" >> $GITHUB_OUTPUT
+          echo "Latest Level Zero: $LATEST (ubuntu: $UBUNTU)"
 
       - name: Detect latest oneAPI devel base image
         id: oneapi
@@ -207,8 +220,12 @@ jobs:
           build-args: |
             ONEAPI_VERSION=${{ steps.oneapi.outputs.latest_oneapi }}
             IGC_VERSION=${{ steps.igc.outputs.latest_igc }}
+            IGC_VERSION_FULL=${{ steps.igc.outputs.latest_igc_full }}
             COMPUTE_RUNTIME_VERSION=${{ steps.compute.outputs.latest_compute }}
+            COMPUTE_RUNTIME_VERSION_FULL=${{ steps.compute.outputs.latest_compute_full }}
+            IGDGMM_VERSION=22.10.0
             LEVEL_ZERO_VERSION=${{ steps.levelzero.outputs.latest_level_zero }}
+            LEVEL_ZERO_UBUNTU_VERSION=${{ steps.levelzero.outputs.level_zero_ubuntu_version }}
             BUILD_WEBUI=0
             GGML_SYCL_F16=ON
             GGML_SYCL_DEVICE_ARCH=bmg-g31
