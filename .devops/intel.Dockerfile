@@ -8,6 +8,15 @@ ARG BUILD_DATE=N/A
 ARG APP_VERSION=N/A
 ARG APP_REVISION=N/A
 
+# === Dynamic Intel stack versions (passed from CI via --build-arg) ===
+# Hoisted to top level so they are visible for FROM and every stage (build + base + server)
+ARG LEVEL_ZERO_VERSION=1.28.2
+ARG LEVEL_ZERO_UBUNTU_VERSION=u24.04
+ARG COMPUTE_RUNTIME_VERSION=26.18.38308.1
+ARG COMPUTE_RUNTIME_VERSION_FULL=26.18.38308.1-0
+ARG IGC_VERSION=v2.34.4
+ARG IGC_VERSION_FULL=2_2.34.4+21428
+ARG IGDGMM_VERSION=22.10.0
 ## Build Image (web UI)
 
 ARG NODE_VERSION=24
@@ -29,17 +38,8 @@ FROM docker.io/intel/deep-learning-essentials:$ONEAPI_VERSION AS build
 # Feature toggles - KEEP ENABLED for best perf on B70
 ARG GGML_SYCL_F16=ON
 ARG GGML_SYCL_DEVICE_ARCH=bmg-g31   # Critical for Battlemage AOT kernels, avoids JIT SIGSEGV
-ARG LEVEL_ZERO_VERSION=1.28.2
-ARG LEVEL_ZERO_UBUNTU_VERSION=u24.04
-# Dynamic versions passed from workflow for latest Intel stack
-ARG COMPUTE_RUNTIME_VERSION=26.18.38308.1
-ARG COMPUTE_RUNTIME_VERSION_FULL=26.18.38308.1-0
-ARG IGC_VERSION=v2.34.4
-ARG IGC_VERSION_FULL=2_2.34.4+21428
-ARG IGDGMM_VERSION=22.10.0
 
-# Install minimal tools needed for AOT compilation (ocloc + level-zero)
-# Uses the same dynamic versions passed from the workflow
+# Install tools needed for AOT (ocloc + level-zero) using versions from build-args
 RUN apt-get update && \
     apt-get install -y git libssl-dev wget ca-certificates && \
     cd /tmp && \
@@ -47,7 +47,6 @@ RUN apt-get update && \
     wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero-devel_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero-devel.deb && \
     apt-get -o Dpkg::Options::="--force-overwrite" install -y ./level-zero.deb ./level-zero-devel.deb && \
     rm -f /tmp/level-zero.deb /tmp/level-zero-devel.deb && \
-    # Dynamic ocloc from passed COMPUTE_RUNTIME_VERSION (for AOT on bmg-g31)
     wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.deb" -O /tmp/ocloc.deb && \
     apt-get -o Dpkg::Options::="--force-overwrite" install -y /tmp/ocloc.deb && \
     rm -f /tmp/ocloc.deb
@@ -109,13 +108,6 @@ LABEL org.opencontainers.image.created=$BUILD_DATE \
       org.opencontainers.image.url=$IMAGE_URL \
       org.opencontainers.image.source=$IMAGE_SOURCE
 
-# Latest known-good for Arc Pro B70 (Battlemage Xe2 / BMG-G31)
-# Update these as Intel releases new compute-runtime / IGC for B70 stability + perf
-ARG IGC_VERSION=v2.34.4
-ARG IGC_VERSION_FULL=2_2.34.4+21428
-ARG COMPUTE_RUNTIME_VERSION=26.18.38308.1
-ARG COMPUTE_RUNTIME_VERSION_FULL=26.18.38308.1-0
-ARG IGDGMM_VERSION=22.10.0
 
 RUN mkdir /tmp/neo/ && cd /tmp/neo/ \
   && wget https://github.com/intel/intel-graphics-compiler/releases/download/$IGC_VERSION/intel-igc-core-${IGC_VERSION_FULL}_amd64.deb \
