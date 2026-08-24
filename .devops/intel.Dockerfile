@@ -48,10 +48,13 @@ ARG IGDGMM_VERSION
 ARG GGML_SYCL_F16=ON
 ARG GGML_SYCL_DEVICE_ARCH=bmg-g31   # Critical for Battlemage AOT kernels, avoids JIT SIGSEGV
 
-# Install tools needed for AOT (ocloc + level-zero) using versions from build-args
+# Install tools needed for AOT (ocloc + IGC + level-zero) using versions from build-args
 # NOTE: level-zero >= 1.29 renamed its .deb packages from level-zero/level-zero-devel
 #       to libze1/libze-dev. Try the new names first, fall back to the old names so
 #       both pin generations build.
+# Must install ocloc AND a matching IGC together: ocloc loads libigc at AOT time and
+# will fail with "Incompatible interface in IGC: IGC_OCL_DEVC" if the only IGC present
+# is the older one bundled in the oneAPI base image.
 RUN apt-get update && \
     apt-get install -y git libssl-dev wget ca-certificates && \
     cd /tmp && \
@@ -61,10 +64,12 @@ RUN apt-get update && \
       || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero-devel_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero-devel.deb) && \
     apt-get -o Dpkg::Options::="--force-overwrite" install -y ./level-zero.deb ./level-zero-devel.deb && \
     rm -f /tmp/level-zero.deb /tmp/level-zero-devel.deb && \
+    wget -q "https://github.com/intel/intel-graphics-compiler/releases/download/${IGC_VERSION}/intel-igc-core-${IGC_VERSION_FULL}_amd64.deb" -O igc-core.deb && \
+    wget -q "https://github.com/intel/intel-graphics-compiler/releases/download/${IGC_VERSION}/intel-igc-opencl-${IGC_VERSION_FULL}_amd64.deb" -O igc-opencl.deb && \
     (wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.deb" -O /tmp/ocloc.deb \
       || wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION}_amd64.deb" -O /tmp/ocloc.deb) && \
-    apt-get -o Dpkg::Options::="--force-overwrite" install -y /tmp/ocloc.deb && \
-    rm -f /tmp/ocloc.deb
+    apt-get -o Dpkg::Options::="--force-overwrite" install -y ./igc-core.deb ./igc-opencl.deb /tmp/ocloc.deb && \
+    rm -f /tmp/ocloc.deb ./igc-core.deb ./igc-opencl.deb
 
 WORKDIR /app
 
