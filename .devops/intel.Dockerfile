@@ -35,6 +35,15 @@ RUN mkdir -p dist &&     if [ "$BUILD_WEBUI" = "1" ]; then       for src in /tmp
 
 FROM docker.io/intel/deep-learning-essentials:$ONEAPI_VERSION AS build
 
+# Re-declare dynamic Intel versions so build-args from CI are visible in this stage
+ARG LEVEL_ZERO_VERSION
+ARG LEVEL_ZERO_UBUNTU_VERSION
+ARG COMPUTE_RUNTIME_VERSION
+ARG COMPUTE_RUNTIME_VERSION_FULL
+ARG IGC_VERSION
+ARG IGC_VERSION_FULL
+ARG IGDGMM_VERSION
+
 # Feature toggles - KEEP ENABLED for best perf on B70
 ARG GGML_SYCL_F16=ON
 ARG GGML_SYCL_DEVICE_ARCH=bmg-g31   # Critical for Battlemage AOT kernels, avoids JIT SIGSEGV
@@ -94,6 +103,13 @@ RUN mkdir -p /app/full \
     && cp llama.cpp/.devops/tools.sh /app/full/tools.sh || true
 
 FROM docker.io/intel/deep-learning-essentials:$ONEAPI_VERSION AS base
+
+# Re-declare for the base stage (neo package downloads)
+ARG IGC_VERSION
+ARG IGC_VERSION_FULL
+ARG COMPUTE_RUNTIME_VERSION
+ARG COMPUTE_RUNTIME_VERSION_FULL
+ARG IGDGMM_VERSION
 
 ARG BUILD_DATE=N/A
 ARG APP_VERSION=N/A
