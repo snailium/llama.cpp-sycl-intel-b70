@@ -31,7 +31,15 @@ ARG GGML_SYCL_F16=ON
 ARG GGML_SYCL_DEVICE_ARCH=bmg-g31   # Critical for Battlemage AOT kernels, avoids JIT SIGSEGV
 ARG LEVEL_ZERO_VERSION=1.28.2
 ARG LEVEL_ZERO_UBUNTU_VERSION=u24.04
+# Dynamic versions passed from workflow for latest Intel stack
+ARG COMPUTE_RUNTIME_VERSION=26.18.38308.1
+ARG COMPUTE_RUNTIME_VERSION_FULL=26.18.38308.1-0
+ARG IGC_VERSION=v2.34.4
+ARG IGC_VERSION_FULL=2_2.34.4+21428
+ARG IGDGMM_VERSION=22.10.0
 
+# Install minimal tools needed for AOT compilation (ocloc + level-zero)
+# Uses the same dynamic versions passed from the workflow
 RUN apt-get update && \
     apt-get install -y git libssl-dev wget ca-certificates && \
     cd /tmp && \
@@ -39,8 +47,8 @@ RUN apt-get update && \
     wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero-devel_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero-devel.deb && \
     apt-get -o Dpkg::Options::="--force-overwrite" install -y ./level-zero.deb ./level-zero-devel.deb && \
     rm -f /tmp/level-zero.deb /tmp/level-zero-devel.deb && \
-    # Install ocloc for AOT (bmg-g31) - required at link time for spir64_gen
-    wget -q "https://github.com/intel/compute-runtime/releases/download/26.18.38308.1/intel-ocloc_26.18.38308.1-0_amd64.deb" -O /tmp/ocloc.deb && \
+    # Dynamic ocloc from passed COMPUTE_RUNTIME_VERSION (for AOT on bmg-g31)
+    wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.deb" -O /tmp/ocloc.deb && \
     apt-get -o Dpkg::Options::="--force-overwrite" install -y /tmp/ocloc.deb && \
     rm -f /tmp/ocloc.deb
 

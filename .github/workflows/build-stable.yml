@@ -135,7 +135,7 @@ jobs:
 
           # Derive ubuntu version dynamically from the oneAPI tag (e.g. ...ubuntu24.04 → u24.04)
           UBUNTU_FROM_ONEAPI=$(echo "$ONEAPI_TAG" | sed -E 's/.*ubuntu([0-9.]+).*/u\1/')
-          [ -z "$UBUNTU_FROM_ONEAPI" ] && UBUNTU_FROM_ONEAPI="u24.04"
+          [ -z "$UBUNTU_FROM_ONEAPI" ] && UBUNTU_FROM_ONEAPI=""
 
           echo "latest_oneapi=$ONEAPI_TAG" >> $GITHUB_OUTPUT
           echo "ubuntu_version_from_oneapi=$UBUNTU_FROM_ONEAPI" >> $GITHUB_OUTPUT
