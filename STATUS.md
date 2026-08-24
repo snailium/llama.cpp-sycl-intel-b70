@@ -6,16 +6,20 @@
 
 ## Current default pins in `.devops/intel.Dockerfile`
 
+These track the latest `intel/compute-runtime` release and its **documented paired** components (the compute-runtime release notes list the exact IGC / Level Zero / gmmlib used to build it). CI derives the whole set from compute-runtime automatically.
+
 | Component | Version |
 |-----------|---------|
 | Base image | `intel/deep-learning-essentials:2026.1.2-devel-ubuntu24.04` |
-| IGC | `v2.34.4` |
-| Compute Runtime | `26.18.38308.1` |
-| Level Zero | `1.28.2` |
+| IGC | `v2.40.13` |
+| Compute Runtime | `26.31.39395.13` |
+| Level Zero | `1.32.0` |
 | igdgmm | `22.10.0` |
 | Device arch | `bmg-g31` (AOT) |
 | GGML_SYCL_F16 | `ON` |
 | Web UI build | `OFF` by default (`BUILD_WEBUI=0`), enabled via `--build-arg BUILD_WEBUI=1` |
+
+**Important build fix:** the oneAPI base image bundles an older IGC (`libigc.so` 2.36.3) in `/usr/lib` that shadows the newer pinned IGC installed to `/usr/local/lib`. The Dockerfile now removes that shadowing `libigc`/`libiga64` (and runs `ldconfig`) in both the build and base stages, so ocloc and the NEO driver load the matching IGC — otherwise every AOT compile fails with `Incompatible interface in IGC: IGC_OCL_DEVC`.
 
 All major features remain enabled: Flash Attention, reorder kernels, MTP / speculative paths, and dynamic backends (`GGML_BACKEND_DL`). **No `GGML_SYCL_DISABLE_OPT`.**
 

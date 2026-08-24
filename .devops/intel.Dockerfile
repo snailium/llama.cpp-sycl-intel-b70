@@ -10,12 +10,15 @@ ARG APP_REVISION=N/A
 
 # === Dynamic Intel stack versions (passed from CI via --build-arg) ===
 # Hoisted to top level so they are visible for FROM and every stage (build + base + server)
-ARG LEVEL_ZERO_VERSION=1.28.2
+# Defaults track the latest intel/compute-runtime release + its documented paired
+# IGC / level-zero versions. CI derives these from compute-runtime automatically
+# (see .github/workflows) — keep them in sync with compute-runtime's release notes.
+ARG LEVEL_ZERO_VERSION=1.32.0
 ARG LEVEL_ZERO_UBUNTU_VERSION=u24.04
-ARG COMPUTE_RUNTIME_VERSION=26.18.38308.1
-ARG COMPUTE_RUNTIME_VERSION_FULL=26.18.38308.1-0
-ARG IGC_VERSION=v2.34.4
-ARG IGC_VERSION_FULL=2_2.34.4+21428
+ARG COMPUTE_RUNTIME_VERSION=26.31.39395.13
+ARG COMPUTE_RUNTIME_VERSION_FULL=26.31.39395.13-0
+ARG IGC_VERSION=v2.40.13
+ARG IGC_VERSION_FULL=2_2.40.13+22418
 ARG IGDGMM_VERSION=22.10.0
 ## Build Image (web UI)
 
@@ -69,7 +72,13 @@ RUN apt-get update && \
     (wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.deb" -O /tmp/ocloc.deb \
       || wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION}_amd64.deb" -O /tmp/ocloc.deb) && \
     apt-get -o Dpkg::Options::="--force-overwrite" install -y ./igc-core.deb ./igc-opencl.deb /tmp/ocloc.deb && \
-    rm -f /tmp/ocloc.deb ./igc-core.deb ./igc-opencl.deb
+    rm -f /tmp/ocloc.deb ./igc-core.deb ./igc-opencl.deb && \
+    # Remove the oneAPI base image's bundled *older* IGC (libigc so 2.36.3)
+    # from /usr/lib so ocloc loads the matching IGC we just installed
+    # (/usr/local/lib). Otherwise ocloc resolves the shadowing lib and fails
+    # every AOT compile with "Incompatible interface in IGC: IGC_OCL_DEVC".
+    rm -f /usr/lib/x86_64-linux-gnu/libigc.so.2* /usr/lib/x86_64-linux-gnu/libiga64.so.2* && \
+    ldconfig
 
 WORKDIR /app
 
@@ -146,7 +155,9 @@ RUN mkdir /tmp/neo/ && cd /tmp/neo/ \
   && wget https://github.com/intel/compute-runtime/releases/download/$COMPUTE_RUNTIME_VERSION/libigdgmm12_${IGDGMM_VERSION}_amd64.deb \
   && wget https://github.com/intel/compute-runtime/releases/download/$COMPUTE_RUNTIME_VERSION/libze-intel-gpu1-dbgsym_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.ddeb \
   && wget https://github.com/intel/compute-runtime/releases/download/$COMPUTE_RUNTIME_VERSION/libze-intel-gpu1_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.deb \
-  && dpkg --install *.deb || true
+  && dpkg --install *.deb || true ; \
+  rm -f /usr/lib/x86_64-linux-gnu/libigc.so.2* /usr/lib/x86_64-linux-gnu/libiga64.so.2* ; \
+  ldconfig || true
 
 RUN apt-get update \
     && apt-get install -y libgomp1 curl ffmpeg \
