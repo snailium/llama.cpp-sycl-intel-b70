@@ -1,40 +1,63 @@
-# Benchmarks
+# Benchmarks — llama.cpp SYCL on Intel Arc Pro B70
 
-This directory contains performance and stability benchmarks for llama.cpp SYCL on Intel Arc Pro B70.
+Performance and stability benchmarks for llama.cpp SYCL running a 27B-class model (Qwen3.8-27B) on a single Intel Arc Pro B70 (32 GB, BMG-G31).
 
-## Guidelines
+## Layout
 
-- One file per significant test run / date / config.
-- Include at minimum:
-  - Exact model + quant (main + draft if using speculative)
-  - Context size
-  - KV cache type (`--cache-type-k/v`)
-  - Draft settings (`--spec-type`, draft model, n-max)
-  - Key metrics: decode t/s, prompt t/s, draft acceptance rate, wall time for agentic tasks
-  - Full command / container launch flags
-  - Comparison when available (e.g. vs vLLM)
-- For dsh/agentic tasks, record both EXIT status and draft acceptance per task.
+```
+benchmark/
+├── README.md        ← you are here (index)
+├── METHODOLOGY.md   ← test methodology (tasks, metrics, conventions)
+├── configs/         ← one file per reproducible server config
+├── results/         ← one file per dated test run
+└── incidents/       ← stability / dropout incident logs
+```
 
-## Files
+**Start with [METHODOLOGY.md](./METHODOLOGY.md)** — it defines the five-task suite (T1–T5), the metric definitions, and the reporting rules that make all reports comparable. **Configs** are declared once and referenced by every run; **results** are the dated numbers produced against those configs.
 
-- [B70_llamacpp_sycl_20260820.md](./B70_llamacpp_sycl_20260820.md) — dsh t3/t4/t5 + single-shot benchmarks with Qwen3.8-27B-Q4_K_M + 2B draft + q8_0 KV (2026-08-20)
+## Recommended configuration
 
-## Future runs
+The current recommended default is **MTP3 + 96k + q8_0 KV** ([config](./configs/mtp3-96k.md)) — the first config to pass all five tasks with the best stability/latency trade-off. Use **MTP4 + 128k + q8_0** ([config](./configs/mtp4-128k.md)) when the full 128k window is required. The `examples/qwen27b-server.sh` launcher matches the MTP4/128k config.
 
-When adding new benchmarks:
-1. Copy this format.
-2. Name files as `B70_<config>_<YYYYMMDD>.md` or similar.
-3. Update the main README.md "Benchmarks" section with a link.
-4. Consider adding raw logs or harness sessions as attachments if useful.
+Two rules drive every recommendation:
+1. **q8_0 KV** is the lifeline — without it, MTP + large context OOMs (f16 KV is short-context-only).
+2. **Thinking must be OFF** for artifact tasks, and **low-acceptance drafts are a net drag** (see methodology).
 
-See also: `docs/B70-TUNING.md` for tuning notes and `examples/qwen27b-server.sh` for launch examples.
+## Configurations
 
-- [B70_llamacpp_nodraft_vision_20260820.md](./B70_llamacpp_nodraft_vision_20260820.md) — **独立报告**：无 draft + 多模态 (mmproj-BF16) + 128k ctx，dsh t3/t4/t5 全通 (2026-08-20/21)。核心结论：移除低 acceptance draft 后 t3/t4 明显更快，多模态对纯文本/工具调用无干扰。
+| Config | Draft | Context | KV | Role |
+|--------|-------|---------|----|------|
+| [draft2b-128k](./configs/draft2b-128k.md) | 2B (disproven) | 128k | q8_0 | Speculative-vs-not baseline |
+| [nodraft-vision-128k](./configs/nodraft-vision-128k.md) | none | 128k | f16 | Stable text + vision workhorse |
+| [mtp3-96k](./configs/mtp3-96k.md) | BF16 MTP n=3 | 96k | q8_0 | **Recommended** |
+| [mtp4-128k](./configs/mtp4-128k.md) | BF16 MTP n=4 | 128k | q8_0 | Max context / max MTP |
 
-- [B70_gpu_dropout_20260821.md](./B70_gpu_dropout_20260821.md) — **GPU dropout incident report** (B70 disappeared after reboot). Detailed comparison with prior incidents, symptoms, log evidence, and mitigations. (2026-08-21)
+## Results
 
-- [B70_llamacpp_mtp3q8_96k_20260821.md](./B70_llamacpp_mtp3q8_96k_20260821.md) — **定稿配置**：MTP3 (`n-max=3, p-min=0.1`) + 96k ctx + KV q8_0 + BF16 MTP draft + mmproj。**首次 5/5 全通**（t1~t5）。核心结论：KV q8_0 解决 MTP + 长上下文宿主 OOM；真实 decode ≈33-35 t/s，acceptance 0.57~0.85。PCIe ASPM 关闭防止掉卡。(2026-08-21)
+| Date | Report | Config | Outcome |
+|------|--------|--------|---------|
+| 2026-08-20 | [draft2b-128k](./results/2026-08-20-draft2b-128k.md) | draft2b-128k | 3/3 agent tasks; proves q8_0 fix + 2B-draft drag |
+| 2026-08-20 | [nodraft-vision-128k](./results/2026-08-20-nodraft-vision-128k.md) | nodraft-vision-128k | 3/3 agent tasks; dropping 2B draft speeds up T3/T4 |
+| 2026-08-21 | [mtp3-96k](./results/2026-08-21-mtp3-96k.md) | mtp3-96k | **5/5**; recommended default |
+| 2026-08-21 | [mtp4-128k](./results/2026-08-21-mtp4-128k.md) | mtp4-128k | **5/5 + 3 vision**; extreme vertex config |
 
-- [B70_llamacpp_mtp4_128k_q8_20260821.md](./B70_llamacpp_mtp4_128k_q8_20260821.md) — **最终盖棺定论报告**：MTP4 + 128K + KV q8_0 + 全 ggml-org 栈（主模型 + mmproj + BF16 MTP）。**首次 5 文本全通（5/5） + 3 真实图像测试**。TTFT ~0.88s，decode 36~41 t/s，agent 长链 acceptance 0.50~0.58。视觉质量与双卡 3060 27b 一致但较慢。**确认此配置为 Arc B70 当前最佳/最完整配置**。(2026-08-21)
+## Incidents
 
-> 注：在 `B70_llamacpp_mtp4_128k_q8_20260821.md` 末尾新增了「与 vLLM-MTP 的速度差异分析」章节，解释了为什么 vLLM-MTP 在单发短任务上显著更快，以及在真实 agent 长链负载下的实际权衡。
+| Date | Report | Summary |
+|------|--------|---------|
+| 2026-08-21 | [gpu-dropout](./incidents/2026-08-21-gpu-dropout.md) | B70 PCIe link dropout after heavy MTP load (B450); recovery + mitigation |
+
+## Headline numbers (for quick reference)
+
+- **Recommended decode:** ~33–35 t/s single-stream (MTP3/96K); **TTFT ≈ 0.88s** (MTP4/128K).
+- **Long-chain draft acceptance:** 0.50–0.85 (BF16 MTP) vs 0.31–0.50 (2B draft).
+- **Full agent suite:** llama.cpp is the **only B70 backend that completes all tasks** — vLLM-MTP crashes on T5.
+- **Vision:** quality on par with a dual-3060 27B, but much slower (visual prefill bottleneck).
+
+## Adding a new benchmark
+
+1. Copy a config under `configs/` (template in `configs/README.md`).
+2. Run the full five-task suite (T1–T5, thinking off) per [METHODOLOGY.md](./METHODOLOGY.md).
+3. Record results using the report template into `results/<YYYY-MM-DD>-<config>.md`.
+4. Stability/incidents go into `incidents/`.
+5. Link the new files from this README.

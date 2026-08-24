@@ -1,24 +1,19 @@
-# Intel Arc Pro B70 + llama.cpp SYCL 实战知识与经验总结 (2026-08)
+# llama.cpp + SYCL on Intel Arc Pro B70 — Field Notes (2026-08)
 
-> 本文档汇总了在 B70 上部署/调试/实测 llama.cpp + SYCL 的全部核心经验。  
-> 目标：任何 Hermes profile 都能快速找到稳定跑 27B（尤其是带 MTP）的正确做法。  
-> 基于真实 dsh/agent 长链负载验证。
+This document consolidates everything learned while deploying, debugging, and measuring llama.cpp + SYCL on the Intel Arc Pro B70. It is the "why" behind the recommended configuration; for hands-on flags see [`B70-TUNING.md`](./B70-TUNING.md) and for test numbers see [`benchmark/`](../benchmark/README.md).
 
-## 核心结论（2026-08 定稿）
+## Bottom line (as of 2026-08)
 
-- **推荐路线**：直接使用预编译容器 `llama.cpp-sycl-b70:server`（已锁定全套运行时）。**不要自己从源码编译**（见“版本三角”）。
-- **定稿配置**（最稳、5/5 全通）：**MTP3 + 96K + KV q8_0 + BF16 MTP draft + mmproj**
-  - `--spec-draft-n-max 3 --spec-draft-p-min 0.1 --ctx-size 98304 --cache-type-k q8_0 --cache-type-v q8_0 --n-gpu-layers 999 --flash-attn on`
-- **极限配置**（满配验证）：MTP4 + 128K + KV q8_0 也能 5/5 全通，但 decode 提升不明显。
-- **MTP 关键洞见**：
-  - MTP 在 agent 负载下的 OOM **是 KV 缓存空间问题**，不是 draft 本身。**必须用 q8_0**。
-  - 低质量 draft（如 2B）是净拖累（acceptance 0.3~0.5），高质量 BF16 MTP 才是真加速。
-- **掉卡根因**：PCIe ASPM → 加 `pcie_aspm=off` + 物理恢复流程。
-- **llama.cpp 比 vLLM 慢 2-3x 的真实原因**：llama.cpp SYCL 后端**并未真正使用 XMX**（源码 TODO 实锤，见下文）。
+- **Use the prebuilt container** `llama.cpp-sycl-b70:server`. Do **not** build llama.cpp from source for B70 — the Intel driver "version triangle" (below) makes a self-built runtime fail to initialize.
+- **Recommended config:** MTP3 + 96K + **KV q8_0** + BF16 MTP draft + mmproj — the first config to pass all five benchmark tasks.
+- **Extreme config (verified):** MTP4 + 128K + KV q8_0 also passes 5/5, but decode gain vs MTP3/96K is negligible (it buys *context*, not speed).
+- **MTP OOM insight:** on agent loads, "MTP OOM" is really a **KV-cache space** problem, not a draft-model problem — fix it with **q8_0 KV**.
+- **Card dropout:** caused by **PCIe ASPM** → add `pcie_aspm=off` and use the physical recovery sequence (below).
+- **llama.cpp is ~2–3× slower than vLLM** because the SYCL backend **does not actually use B70's XMX** (confirmed in source, see below).
 
-## 1. 推荐部署方式
+## 1. Recommended deployment
 
-**强烈推荐**使用项目预编译容器：
+Use the prebuilt container:
 
 ```bash
 docker run -d \
@@ -33,37 +28,39 @@ docker run -d \
   llama.cpp-sycl-b70:server \
   -m /models/Qwen3.8-27B-Q4_K_M.gguf \
   --mmproj /models/mmproj-Qwen3.8-27B-BF16.gguf \
-  ...其他参数
+  ...other flags
 ```
 
-**不要尝试的路线**（均失败）：
-- 用 oneAPI 2026.1 自己编译上游 llama.cpp → `ggml_sycl_init` 失败 + NEO 断言。
-- IPEX-LLM 容器/Portable Zip → 驱动版本三角不匹配（libze_loader ABI 问题）。
-- 手动加 Intel GPU 源 → key 403 或驱动不认 B70。
+Also pass `/dev/dri` (or the specific render device) so Level Zero can see the GPU.
 
-## 2. 版本三角（最重要背景知识）
+**Routes that do NOT work** (all failed in testing):
+- Building upstream llama.cpp with oneAPI 2026.1 yourself → `ggml_sycl_init` failure + NEO assertion.
+- IPEX-LLM container / Portable Zip → driver version-triangle mismatch (libze_loader ABI problem).
+- Manually adding the Intel GPU apt source → key returns 403, or the driver does not recognize B70.
 
-B70 正常工作需要三者完全锁定：
+## 2. The version triangle (why prebuilt only)
 
-| 组件                    | 所需版本                  |
-|-------------------------|---------------------------|
-| B70 新驱动              | libze_intel_gpu 1.15.39122 |
-| 新驱动对应 loader       | libze_loader 1.32 (ur ABI 0.12) |
-| 官方 portable (2025-07) | 老 loader ~1.18.5 (ABI 0.10) |
+B70 needs three components to be mutually locked:
 
-只有特定预编译容器把 ur 0.12 + libsycl + ze 1.32 + driver 1.15.39122 全部锁死，才能用。
+| Component | Required version |
+|-----------|------------------|
+| B70 driver | libze_intel_gpu **1.15.39122** |
+| Driver's loader | libze_loader **1.32** (ur ABI 0.12) |
+| Old official portable (2025-07) | older loader ~1.18.5 (ABI 0.10) |
 
-## 3. 运行时环境变量（必须）
+Only a container that pins ur 0.12 + libsycl + ze 1.32 + driver 1.15.39122 together can drive B70. Individual pieces pulled from the ecosystem won't line up.
+
+## 3. Mandatory runtime environment
 
 ```bash
 export ONEAPI_DEVICE_SELECTOR=level_zero:0
-export SYCL_CACHE_PERSISTENT=0     # 必须！=1 会 SIGSEGV
+export SYCL_CACHE_PERSISTENT=0     # MUST be 0; =1 SIGSEGVs on Xe2 during JIT
 export ZES_ENABLE_SYSMAN=1
 ```
 
-## 4. 最终推荐启动参数
+## 4. Final recommended launch flags
 
-**定稿配置（MTP3/96K + q8_0）**：
+**Recommended (MTP3/96K + q8_0):**
 
 ```bash
 --ctx-size 98304 \
@@ -76,31 +73,29 @@ export ZES_ENABLE_SYSMAN=1
 --n-gpu-layers 999
 ```
 
-**极限满配（MTP4/128K + q8_0）**：把 `--ctx-size 131072 --spec-draft-n-max 4` 即可，同样用 q8_0。
+**Extreme (MTP4/128K + q8_0):** `--ctx-size 131072 --spec-draft-n-max 4` (same q8_0 KV).
 
-**模型栈推荐**：全用 ggml-org（Q4_K_M + mmproj-BF16 + mtp-BF16）。
+**Model stack:** use all ggml-org quants (Q4_K_M main + BF16 mmproj + BF16 MTP draft). See `examples/qwen27b-server.sh`.
 
-## 5. MTP 调优经验
+## 5. MTP tuning notes
 
-- **低质量 draft 是净拖累**：2B draft acceptance 常 0.3~0.5，拉低整体速度。
-- **高质量 MTP 才值得**：BF16 MTP acceptance 通常 0.57~0.91，短任务可 +30~60%。
-- n-max 越高对 KV 压力越大。n-max=4 + fp16 KV 几乎必 t4 OOM。
-- p-min 0.1 是 MTP4 时的较好中性起点。
-- 真实速度要看客户端 tg 或 `timings`，日志里 `eval time` 的 token/s 因投机批处理而虚高。
+- **A low-quality draft is a net drag.** A 2B draft with acceptance 0.31–0.50 makes generation *slower*; a high-quality **BF16 MTP** draft (acceptance 0.57–0.91) genuinely speeds short tasks +30–60%.
+- Higher `n-max` pressures KV harder. `n-max=4` + f16 KV essentially guarantees a T4 OOM.
+- `p-min 0.1` is a good neutral start for MTP4.
+- Real speed must be read from the client's streamed `tg` or `timings`; llama.cpp's logged `eval time` token/s is inflated by speculative batching.
 
-## 6. 内存与稳定性核心
+## 6. Memory & stability core
 
-- **KV q8_0 是 MTP + 大上下文的生命线**。fp16 KV 下 MTP 5.9GB draft 会把 KV 空间挤掉，导致 agent 长链 t4 宿主 OOM。
-- 宿主内存峰值比 VRAM 更危险（曾到 26GB+ + swap）。
-- "failed to fit params... n_gpu_layers 999" 是常见警告，不致命。
-- 掉卡几乎全是 PCIe ASPM 导致。加 `pcie_aspm=off` 后基本根除。
-- 掉卡恢复必须物理操作（拔卡 → 核显开机 → 关机 → 插回 → 开机）。
+- **q8_0 KV is the lifeline for MTP + large context.** With f16 KV, the 5.9 GB MTP draft crowds out KV headroom and long agent chains OOM host RAM.
+- **Host RAM is the more dangerous limit** than VRAM (observed up to 26 GB+ peak + swap).
+- `failed to fit params... n_gpu_layers 999` is a common, non-fatal warning.
+- Dropouts are almost always **PCIe ASPM** → `pcie_aspm=off` in the kernel cmdline resolves recurrence.
+- After a dropout, recovery **must be physical**: remove card → boot on iGPU → shut down → reinsert card → boot.
 
-## 7. XMX 现实（为什么慢）
+## 7. The XMX reality (why llama.cpp is slower)
 
-llama.cpp SYCL 后端**目前并未真正使用 B70 的 XMX**（Intel 矩阵单元）：
+The llama.cpp SYCL backend **does not actually use B70's XMX** matrix units yet. Source evidence in `ggml-sycl/common.hpp`:
 
-源码证据（`ggml-sycl/common.hpp`）：
 ```cpp
 // define for XMX in Intel GPU
 // TODO: currently, it's not used for XMX really.
@@ -109,40 +104,36 @@ llama.cpp SYCL 后端**目前并未真正使用 B70 的 XMX**（Intel 矩阵单�
 #endif
 ```
 
-`SYCL_USE_XMX` 只是选 MMQ vs DMMV kernel，不是真的调用 DPAS/XMX 指令。
+`SYCL_USE_XMX` only selects MMQ vs DMMV kernels — it is **not** a real DPAS/XMX invocation. This is the main reason llama.cpp is 2–3× slower than vLLM (which uses a dedicated XPU XMX kernel path). Worth re-checking as upstream matures (see `benchmark/results/2026-08-21-mtp4-128k.md` §IV for the vLLM comparison).
 
-这才是 llama.cpp 比 vLLM 慢 2-3x 的主要原因（vLLM 走了 XPU 专用 XMX kernel）。
-
-## 8. 监控与调试
+## 8. Monitoring & debugging
 
 ```bash
-# xpu-smi 后台监控
+# xpu-smi background monitor
 nohup bash -c 'while true; do echo "=== $(date)"; xpu-smi stats -d 0; sleep 5; done' > ~/xpu-smi-monitor.log &
 
-# 关键日志过滤
-docker logs -f <容器> | grep -E "draft acceptance|making room|fit params|GPF|initializing"
-
+# Key log filters
+docker logs -f <container> | grep -E "draft acceptance|making room|fit params|GPF|initializing"
 journalctl -b -xe | grep -E "llama-server|Xe|GPF"
 ```
 
-## 9. 常见坑
+Watch host memory peaks more than VRAM (host peaked 26 GB+ + swap).
 
-- 永远不要加 `GGML_SYCL_DISABLE_OPT`。
-- 不要用默认 intel/ggml 镜像，必须用带 B70 AOT 的自定义镜像。
-- fp16 KV + MTP + ≥96k 极高概率 OOM。
-- 低接受率 draft（2B）会拖慢整体速度。
-- 日志 token/s 不能直接当真实速度用。
+## 9. Common pitfalls
 
-## 10. 参考资料
+- Never set `GGML_SYCL_DISABLE_OPT` (kills SYCL kernel performance / correctness).
+- Do not use the default intel/ggml images — use the B70-AOT custom image (default has no B70 kernels).
+- f16 KV + MTP + ≥96k → near-certain OOM.
+- Low-acceptance drafts (e.g. 2B) slow you down rather than helping.
+- Logged token/s is not the real speed.
 
-- 本项目 `docs/B70-TUNING.md`
-- `benchmark/B70_llamacpp_mtp4_128k_q8_20260821.md`（极限 5/5 + 视觉）
-- `benchmark/B70_llamacpp_mtp3q8_96k_20260821.md`（定稿 5/5）
-- `benchmark/B70_gpu_dropout_20260821.md`（掉卡完整记录）
-- `examples/qwen27b-server.sh`（当前推荐启动脚本）
+## 10. References
 
----
+- [`docs/B70-TUNING.md`](./B70-TUNING.md) — hands-on flags and pitfalls.
+- [`benchmark/METHODOLOGY.md`](../benchmark/METHODOLOGY.md) — test methodology.
+- [`benchmark/configs/mtp4-128k.md`](../benchmark/configs/mtp4-128k.md) & [`benchmark/results/2026-08-21-mtp4-128k.md`](../benchmark/results/2026-08-21-mtp4-128k.md) — extreme 5/5 + vision.
+- [`benchmark/results/2026-08-21-mtp3-96k.md`](../benchmark/results/2026-08-21-mtp3-96k.md) — recommended 5/5.
+- [`benchmark/incidents/2026-08-21-gpu-dropout.md`](../benchmark/incidents/2026-08-21-gpu-dropout.md) — dropout record.
+- [`examples/qwen27b-server.sh`](../examples/qwen27b-server.sh) — current recommended launch script.
 
-**最后提醒**：目前最可靠的做法是 **预编译容器 + MTP3/96K + KV q8_0 + 全 ggml-org 栈**。
-
-任何新配置（更高 n-max、fp16 KV、更大 ctx）都必须先验证内存和掉卡风险。
+**In short:** prebuilt container + MTP3/96K + KV q8_0 + all-ggml-org stack. Any new config (higher n-max, f16 KV, larger ctx) must first be validated for memory and dropout risk.

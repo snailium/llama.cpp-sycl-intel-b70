@@ -1,78 +1,95 @@
-# Intel Arc Pro B70 + llama.cpp SYCL Tuning Guide (Community)
+# llama.cpp + SYCL Tuning Guide for Intel Arc Pro B70
 
-This guide is specific to **Arc Pro B70 (32 GB Battlemage / BMG-G31)** using the community SYCL Docker or a matching build.
+This guide is specific to the **Intel Arc Pro B70** (32 GB, BMG-G31 **Xe2**) using this repo's SYCL Docker image (or a matching build). For the reasoning and full benchmark numbers, see [`benchmark/`](../benchmark/README.md) and [`B70-SYCL-KNOWLEDGE.md`](./B70-SYCL-KNOWLEDGE.md).
 
 ## 1. Host prerequisites (Linux)
 
-- Recent kernel with good Xe support (Ubuntu 24.04/26.04 + 6.8+ or 7.x recommended).
-- Intel GPU driver / compute-runtime installed on the **host** (the container brings its own user-space but Level Zero must see the device).
-- Add user to groups:
+- Recent kernel with good Xe support (Ubuntu 24.04/26.04 + kernel 6.8+ or 7.x recommended).
+- Intel GPU driver / compute-runtime is expected on the **host**. The container brings its own user-space, but **Level Zero must still enumerate the device**.
+- Add your user to the GPU groups:
 
 ```bash
 sudo usermod -aG render,video $USER
-# log out / in
+# then log out / back in
 ```
+
+- **Stability flag (recommended, needed on B450):** add `pcie_aspm=off` to the kernel cmdline (`GRUB_CMDLINE_LINUX_DEFAULT="pcie_aspm=off"` + `update-grub` + reboot). See `benchmark/incidents/2026-08-21-gpu-dropout.md`.
 
 - Verify:
 
 ```bash
 sycl-ls
-# Expect something like:
+# Expect:
 # [level_zero:gpu][level_zero:0] ... Intel(R) Arc(TM) Pro B70 Graphics
 ```
 
-## 2. Key build options (already set in our Dockerfile)
+## 2. Key build options (already set in `.devops/intel.Dockerfile`)
 
 - `-DGGML_SYCL=ON`
-- `-DGGML_SYCL_F16=ON` (default in this image)
-- `-DGGML_SYCL_DEVICE_ARCH=bmg-g31` ← **Very important for B70**
+- `-DGGML_SYCL_F16=ON`
+- `-DGGML_SYCL_DEVICE_ARCH=bmg-g31` ← **very important for B70**
 - `-DGGML_BACKEND_DL=ON`
-- No `GGML_SYCL_DISABLE_OPT`
+- **No** `GGML_SYCL_DISABLE_OPT`
 
-The AOT flag pre-compiles kernels for Battlemage and greatly reduces cold-start problems.
+The AOT flag (`bmg-g31`) pre-compiles kernels for Battlemage and avoids JIT/SIGSEGV at startup.
 
-## 3. Runtime environment variables (mandatory for stability)
+## 3. Mandatory runtime environment vars
 
 ```bash
 export ONEAPI_DEVICE_SELECTOR=level_zero:0
-export SYCL_CACHE_PERSISTENT=0     # Xe2 + 2026 oneAPI has a known SIGSEGV with =1 on first JIT
+export SYCL_CACHE_PERSISTENT=0     # Xe2 + 2026 oneAPI SIGSEGVs with =1 on first JIT
 export ZES_ENABLE_SYSMAN=1
-# export GGML_SYCL_DISABLE_OPT=1   # NEVER for plain llama.cpp SYCL (50%+ perf loss)
+# Do NOT set GGML_SYCL_DISABLE_OPT (large SYCL perf loss)
 ```
 
-## 4. Recommended server flags for 27B-class models (Qwen3 / Qwen3.6 etc.)
+## 4. KV cache: the single biggest stability lever
+
+| KV type | Use when | Why |
+|---------|----------|-----|
+| f16 | short context, no MTP draft | fast, smallest overhead |
+| **q8_0** (`--cache-type-k/v q8_0`) | **MTP + 96k–128k context** | halves KV; the only way the ≈5.9 GB MTP draft + large context fit in 32 GB without host-RAM overflow/OOM |
+
+> Rule of thumb: **f16 KV + MTP + ≥96k → near-certain OOM.** Default to q8_0 when running speculative MTP at large context (see `benchmark/METHODOLOGY.md` §4).
+
+## 5. Recommended server flags for 27B-class models
+
+**Recommended (MTP3 + 96k + q8_0):**
 
 ```bash
 ./llama-server \
-  -m /models/Qwen3-27B-Q4_K_M.gguf \
+  -m /models/Qwen3.8-27B-Q4_K_M.gguf \
+  --mmproj /models/mmproj-Qwen3.8-27B-BF16.gguf \
   --n-gpu-layers 999 \
-  --ctx-size 32768 \
+  --ctx-size 98304 \
+  --cache-type-k q8_0 --cache-type-v q8_0 \
   --flash-attn on \
-  # KV cache: omit or use f16 explicitly
-  # --cache-type-k f16 --cache-type-v f16
+  --spec-type draft-mtp \
+  --spec-draft-model /models/mtp-Qwen3.8-27B-BF16.gguf \
+  --spec-draft-n-max 3 \
+  --spec-draft-p-min 0.1 \
   --port 8080 --host 0.0.0.0
 ```
 
-For pure text short context: f16 is fine and fastest. For MTP + large context (96k-128k+), q8_0 KV cache has proven to be the practical lifeline on B70 to avoid OOM (see benchmark reports).
+**Max context (MTP4 + 128k + q8_0):** replace `--ctx-size 98304` with `--ctx-size 131072` and `--spec-draft-n-max 4`. Matches `examples/qwen27b-server.sh`.
 
-MTP / speculative decoding:
-- Use a draft model GGUF + the appropriate `--spec-draft-model` (alias `-md`) + `--spec-type draft-mtp` flags supported by your build of llama-server.
-- Nothing in this image disables the speculative paths.
+**MTP / speculative decoding:** use a draft-model GGUF with `--spec-draft-model` (`-md`) + `--spec-type draft-mtp`. Nothing in this image disables the speculative paths.
 
-Flash Attention:
-- Use `--flash-attn on` (or auto). The SYCL backend supports it (added upstream ~2026.03). Memory savings are significant on 27B+ at large context.
+**Flash Attention:** `--flash-attn on` (or `auto`). SYCL support landed upstream ~2026.03; memory savings are significant on 27B+ at large context.
 
-## 5. Common pitfalls on B70
+> **Quality of draft matters.** Only use a high-quality draft (e.g. BF16 MTP). A low-acceptance 2B draft (acceptance 0.31–0.50) is a **net slowdown**.
+
+## 6. Common pitfalls on B70
 
 - Old compute-runtime / IGC → device not enumerated or very slow kernels.
-- Using the default published intel/ggml images without rebuilding → old oneAPI + missing B70 fixes.
-- Setting `GGML_SYCL_DISABLE_OPT=1` (was only for certain IPEX-LLM workarounds).
-- Large context + Q8_0 KV → either OOM or 2x slower.
-- Not passing the render device correctly into the container.
+- Using the default published `intel/ggml` images without rebuilding → old oneAPI, no B70 fixes.
+- Setting `GGML_SYCL_DISABLE_OPT=1`.
+- `f16 KV + MTP + large ctx` → host OOM (use q8_0).
+- Not passing the render device into the container (pass `/dev/dri` or the specific render device).
+- **Reading the wrong throughput number** — llama.cpp's logged `eval time` token/s is inflated by speculative batching; read real speed from streamed `tg` or `timings`.
 
-## 6. Verifying a good run
+## 7. Verifying a good run
 
-Inside container:
+Inside the container:
 
 ```bash
 sycl-ls
@@ -80,59 +97,43 @@ sycl-ls
 ```
 
 Look for:
-- Device shows as B70
-- No immediate "SYCL error" or memset / kernel launch failures
-- Model loads with reasonable `llm_load_tensors` buffer sizes (should fit in 32 GB VRAM for 27B Q4/Q5)
+- Device listed as B70.
+- No immediate SYCL error / kernel-launch failure.
+- Model loads with reasonable `llm_load_tensors` buffer sizes (a 27B Q4/Q5 fits in 32 GB).
 
-## 7. Updating for newer B70 support
+**Card-alive check (strict):** a real `/v1/chat/completions` that returns text with `finish_reason=stop`. Check `dmesg` for `wedged / reset failed / GuC no reply` to detect an un-recovered card.
 
-1. Check https://github.com/intel/compute-runtime/releases and https://github.com/intel/intel-graphics-compiler/releases for newer packages.
+## 8. Updating for newer B70 support
+
+1. Check [intel/compute-runtime releases](https://github.com/intel/compute-runtime/releases) and [intel-graphics-compiler releases](https://github.com/intel/intel-graphics-compiler/releases).
 2. Update the ARG defaults in `.devops/intel.Dockerfile`.
-3. Rebuild and test with a 27B model + flash-attn + MTP draft if available.
+3. Rebuild and test with a 27B model + flash-attn + MTP draft.
 4. Open a PR with benchmark numbers (pp/tg for your quant + context).
 
-## 8. Multi-GPU notes
+The CI workflows auto-pick up dependency updates; see the **CI / Automatic builds** section in the project [`README.md`](../README.md).
 
-B70 multi-GPU works with `--split-mode layer` or model routing (separate servers per card). Community reports mixed results with row split; layer split or explicit device assignment is more reliable today.
+## 9. B70 disappearance / PCIe link training (B450 etc.)
+
+Some motherboards (notably ASUS ROG STRIX B450-F) can lose the B70 after heavy load, crash, or reboot: `lspci` no longer shows it.
+
+**Recovery sequence that works:**
+1. Power off completely.
+2. Physically remove the B70.
+3. Boot the system using the integrated GPU.
+4. Shut down cleanly.
+5. Re-insert the B70 (direct into the motherboard slot).
+6. Boot again.
+
+**Prevention / stability:**
+- Prefer a direct motherboard slot (avoid risers/extenders in daily use — confirmed the dropout reproduces even with a direct slot).
+- `pcie_aspm=off` in the kernel cmdline prevents recurrence on this platform.
+- Monitor `dmesg | grep -iE 'xe|pcie|fault'` and `journalctl -b -1` after incidents.
+- Record full timelines in `benchmark/incidents/` when it happens.
+
+See [`benchmark/incidents/2026-08-21-gpu-dropout.md`](../benchmark/incidents/2026-08-21-gpu-dropout.md) for the detailed incident log and mainboard notes.
+
+**Multi-GPU note (upstream):** a 26.x compute-runtime had a known issue in certain multi-GPU setups (see [ggml-org/llama.cpp#21747](https://github.com/ggml-org/llama.cpp/issues/21747)).
 
 ---
 
-Keep all features on. Measure, then decide. Report back exact versions + numbers so the community pins stay current.
-
-## 9. B70 Disappearance / PCIe Link Training Issues (B450 etc.)
-
-Some motherboards (notably ASUS ROG STRIX B450-F) can lose the B70 after heavy load, crash, or reboot. Symptoms: `lspci` no longer shows the card, even though it was present before.
-
-**Recovery procedure that has worked:**
-1. Power off completely.
-2. Physically remove the B70 card.
-3. Boot into the system using integrated graphics (iGPU).
-4. Shut down cleanly.
-5. Re-insert the B70 card.
-6. Boot again.
-
-**Prevention / stability notes:**
-- Prefer direct motherboard slot (avoid risers/extenders when possible for daily use).
-- `pcie_aspm=off` in kernel cmdline has helped some users with link drops.
-- Monitor with `dmesg | grep -iE 'xe|pcie|fault'` and `journalctl -b -1` after incidents.
-- Record full timeline in `benchmark/B70_gpu_dropout_*.md` when it happens.
-
-See also `benchmark/B70_gpu_dropout_20260821.md` for detailed incident log and mainboard notes.
-
-**Multi-GPU / known issues note (from upstream):**
-At the time of this image, 26.x compute-runtime had a known issue with certain multi-GPU setups (see ggml-org/llama.cpp#21747).
-
-
-## CI / Auto-build behavior (new)
-
-We maintain two separate GitHub workflows instead of one combined file:
-
-- **Stable** (`build-stable.yml` on main): runs every 4 hours. Tracks both the latest `v*` tag from llama.cpp **and** all Intel dependencies (compute-runtime, IGC, Level Zero, oneAPI base image). Any change triggers a build with a temporary tag (`server-vX.Y-YYYYMMDD-HHMM`) and opens a detailed Issue.
-
-- **Dev** (`build-dev.yml` on dev branch): runs every Saturday at 00:00 UTC.
-  - If the latest llama.cpp tag is a release (`v*`), it skips the build and opens an issue suggesting you align the dev image to the latest stable.
-  - Otherwise it builds from the latest upstream main commit + the absolute latest available dependencies.
-
-In both cases the image is pushed as a **candidate** (temporary tag). The maintainer is expected to pull it to the real B70, test thoroughly, and only then create a proper named tag (e.g. `server-v1.XX` or a `dev` pointer).
-
-You can still bump pins manually in the Dockerfile — the next scheduled run will detect the difference if desired.
+Keep all features on. Measure, then decide. Report exact versions + numbers so the community pins stay current.

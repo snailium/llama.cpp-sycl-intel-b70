@@ -1,22 +1,34 @@
-# llama.cpp SYCL for Intel Arc B70 (Community)
+# llama.cpp + SYCL for Intel Arc B70 (Community)
 
-**Goal**: A maintained, up-to-date Docker image + guidance for running llama.cpp with SYCL on Intel Arc Pro B70 (32 GB) and other Battlemage cards.
+A maintained, up-to-date Docker image + guidance for running **llama.cpp with SYCL** on the **Intel Arc Pro B70 (32 GB, BMG-G31 / Xe2)** and other Battlemage B-series cards.
 
-Official `ghcr.io/ggml-org/llama.cpp:* -intel` images often lag on oneAPI / compute-runtime / IGC. This community effort keeps the stack current for B70 while **keeping every feature enabled** (Flash Attention, speculative decoding / MTP, reorder kernels, dynamic backends, etc.). No `GGML_SYCL_DISABLE_OPT`.
+The official `ghcr.io/ggml-org/llama.cpp:* -intel` images often lag on oneAPI / compute-runtime / IGC. This community effort keeps the stack current for B70 while **keeping every feature enabled** — Flash Attention, speculative decoding / MTP, reorder kernels, and dynamic backends. **No `GGML_SYCL_DISABLE_OPT`.**
+
+## ✨ Highlights
+
+- **First backend that reliably completes a full agent suite on B70.** llama.cpp + SYCL is the only B70 backend verified to pass all five benchmark tasks (T1–T5) in a single run — vLLM-MTP crashes on long agent chains.
+- **Recommended config verified:** MTP3 + 96k + q8_0 KV ≈ **33–35 t/s** decode, TTFT ≈ **0.88 s**, draft acceptance 0.57–0.85.
+- **q8_0 KV is the stability lifeline** — the fix that makes MTP + large context fit in 32 GB without host-RAM OOM.
+- **Why it's slower than vLLM, in one line:** the llama.cpp SYCL backend does not yet use B70's XMX matrix units (source-confirmed). See [`docs/B70-SYCL-KNOWLEDGE.md`](./docs/B70-SYCL-KNOWLEDGE.md).
 
 ## Why a community image for B70?
 
-- B70 (BMG-G31 / Xe2) needs recent Intel Compute Runtime + IGC (26.18+ series recommended in community reports).
-- oneAPI base images in the wild are pinned to 2025.x; 2026.x brings better stability and kernels.
-- Important runtime flags and build options for B70 are easy to get wrong (device arch for AOT, KV cache type, persistent cache, etc.).
-- Flash-Attn and MTP/speculative decoding must stay on — we never disable them.
+- B70 (BMG-G31 / Xe2) needs a recent Intel Compute Runtime + IGC.
+- OneAPI base images in the wild are pinned to 2025.x; 2026.x brings better stability and kernels.
+- B70-specific build/runtime flags are easy to get wrong (device arch for AOT, KV cache type, persistent cache).
+- Flash-Attn and MTP/speculative decoding must stay **on** — we never disable them.
 
 ## Quick start (Docker)
 
-### 1. Build the image (latest components)
+### 1. Build the image
+
+From the repo root (contains `.devops/intel.Dockerfile`):
 
 ```bash
-# From this repo root (contains .devops/intel.Dockerfile)
+# Convenience script
+./scripts/build-b70-image.sh server
+
+# ...or directly
 docker build \
   --target server \
   -t llama.cpp-sycl-b70:server \
@@ -27,74 +39,105 @@ docker build \
   .
 ```
 
-Targets:
-- `server` (recommended)
-- `light`
-- `full`
-
-You can override pins at build time (IGC_VERSION, COMPUTE_RUNTIME_VERSION, etc.) via --build-arg.
+Build targets: `server` (recommended), `light`, `full`. Override any Intel dependency pin at build time via `--build-arg` (`IGC_VERSION`, `COMPUTE_RUNTIME_VERSION`, `LEVEL_ZERO_VERSION`, …).
 
 ### 2. Run on B70
 
-Find your render device:
+Find your render device first:
 
 ```bash
-ls -l /dev/dri
-# Typically /dev/dri/renderD128 or renderD129 for the dGPU
+ls -l /dev/dri          # typically /dev/dri/renderD128 or renderD129 for the dGPU
 ```
 
-Run the server (expose on host):
+Docker run (with the mandatory environment inside or via `-e`):
 
 ```bash
 docker run --rm -it \
-  --device /dev/dri/renderD128:/dev/dri/renderD128 \
-  --device /dev/dri/card0:/dev/dri/card0 \
+  --device /dev/dri \
   -v /path/to/models:/models \
   -p 8080:8080 \
-  llama.cpp-sycl-b70:server \
-  -m /models/Qwen3-27B-Q4_K_M.gguf \
-  --n-gpu-layers 999 \
-  --ctx-size 131072 \
-  --cache-type-k q8_0 \
-  --cache-type-v q8_0 \
-  --flash-attn on \
-  --port 8080 --host 0.0.0.0
-```
-
-**Critical environment inside the container (or pass via -e):**
-
-```bash
-ONEAPI_DEVICE_SELECTOR=level_zero:0
-SYCL_CACHE_PERSISTENT=0          # Avoids SIGSEGV on Xe2 during JIT
-ZES_ENABLE_SYSMAN=1
-# Do NOT set GGML_SYCL_DISABLE_OPT (big perf regression)
-```
-
-Example with env:
-
-```bash
-docker run ... \
   -e ONEAPI_DEVICE_SELECTOR=level_zero:0 \
   -e SYCL_CACHE_PERSISTENT=0 \
   -e ZES_ENABLE_SYSMAN=1 \
-  llama.cpp-sycl-b70:server ...
+  llama.cpp-sycl-b70:server \
+  -m /models/Qwen3.8-27B-Q4_K_M.gguf \
+  --n-gpu-layers 999 \
+  --flash-attn on \
+  --ctx-size 98304 \
+  --cache-type-k q8_0 --cache-type-v q8_0 \
+  --port 8080 --host 0.0.0.0
 ```
 
-### Recommended launch flags for Qwen3 27B-class on single B70
+**Mandatory environment (never set `GGML_SYCL_DISABLE_OPT`):**
 
-From community testing (B70 + SYCL):
+```bash
+ONEAPI_DEVICE_SELECTOR=level_zero:0   # select the GPU
+SYCL_CACHE_PERSISTENT=0               # =1 SIGSEGVs on Xe2 during first JIT
+ZES_ENABLE_SYSMAN=1
+```
 
-- `--n-gpu-layers 999` (or very high)
-- `--flash-attn on` (or auto). SYCL backend supports it.
-- Default KV: f16 safe for short ctx. For MTP + 96k-128k, q8_0 KV is the current recommended lifeline (see benchmark/B70_llamacpp_mtp4_128k_q8_20260821.md)
-- `--ctx-size` as large as VRAM allows (many run 24k-32k+)
-- For MTP/speculative: use a draft model + `--spec-draft-model` + `--spec-type draft-mtp` (or `-md`) (the binary supports it; nothing is disabled here)
+A `docker-compose.yml` and a ready-made launcher for the Qwen3.8-27B MTP stack are included (`examples/qwen27b-server.sh`).
 
-For Qwen3 MTP quants (Unsloth-style etc.), the server binary supports draft models. Test with your specific GGUF.
+### Recommended configuration for Qwen3 27B-class on a single B70
 
-## docker-compose example
+| Config | Context | KV | MTP draft | When |
+|--------|---------|----|-----------|------|
+| **MTP3 + 96k** (recommended) | 96k | **q8_0** | BF16 MTP, n=3 | Best stability + latency for everyday / agent use |
+| MTP4 + 128k (max) | 128k | **q8_0** | BF16 MTP, n=4 | When the full 128k context window is required |
+| no-draft + 128k | 128k | f16 | none | The stable agent "workhorse" when speculation isn't worth it |
 
-See `docker-compose.yml` in this repo.
+Full details and memory footprints in [`benchmark/configs/`](./benchmark/configs/). Also:
+
+- `--n-gpu-layers 999` (offload everything).
+- `--flash-attn on` (SYCL backend supports it).
+- **q8_0 KV** is required for MTP + 96k–128k (f16 KV + MTP + large ctx OOMs). f16 KV is fine for short contexts.
+- **Use a high-quality MTP draft** (BF16) — a low-acceptance 2B draft is a net slowdown.
+
+## Project structure
+
+```
+.
+├── README.md                   ← you are here
+├── STATUS.md                   ← current pin versions & known-working state
+├── CONTRIBUTING.md             ← how to contribute (benchmarks welcome)
+├── docs/
+│   ├── B70-SYCL-KNOWLEDGE.md   ← all field knowledge & the "why" behind the config
+│   └── B70-TUNING.md           ← hands-on flags, pitfalls, PCIe stability
+├── benchmark/
+│   ├── METHODOLOGY.md          ← the 5-task test suite + metric definitions
+│   ├── configs/                ← one file per reproducible server config
+│   ├── results/                ← one file per dated test run
+│   └── incidents/              ← stability / dropout incident logs
+├── examples/
+│   └── qwen27b-server.sh       ← recommended MTP4/128k launcher
+├── scripts/
+│   └── build-b70-image.sh      ← convenience build script
+├── .devops/intel.Dockerfile    ← the build pipeline (all version pins)
+├── docker-compose.yml
+├── .github/workflows/          ← CI auto-build (stable / dev)
+└── llama.cpp/                  ← upstream llama.cpp vendored via git subtree
+```
+
+## What we keep enabled (by design)
+
+- **Flash Attention** (SYCL support since ~2026.03).
+- **Speculative decoding / MTP** paths.
+- Reorder / optimized `mul_mat` kernels for Q4_K etc.
+- **Dynamic backends** (`GGML_BACKEND_DL`).
+- F16 KV for short contexts (q8_0 for MTP + large context).
+- Full CPU-variant fallbacks.
+
+We explicitly do **not** set `GGML_SYCL_DISABLE_OPT`.
+
+## Benchmarks
+
+`benchmark/` holds the full test methodology and all measured runs. **Start with [`benchmark/METHODOLOGY.md`](./benchmark/METHODOLOGY.md)** for the 5-task suite and metric conventions, then browse:
+
+- **[configs/](./benchmark/configs/)** — reproducible server configurations.
+- **[results/](./benchmark/results/)** — dated run reports (the recommended 5/5 result is `2026-08-21-mtp3-96k.md`; the extreme 5/5 + vision is `2026-08-21-mtp4-128k.md`).
+- **[incidents/](./benchmark/incidents/)** — the B70 PCIe-dropout incident log.
+
+> **Testing methodology matters.** Always verify cards with a real `/v1/chat/completions` → `finish_reason=stop`, keep thinking **off** for artifact tasks, use q8_0 KV for MTP+large context, and never trust llama.cpp's batched `eval time` figures as the real throughput (see methodology).
 
 ## Building from source (bare metal, for comparison)
 
@@ -109,70 +152,39 @@ cmake -B build \
 cmake --build build --config Release -j$(nproc)
 ```
 
-Then run with the env vars above.
-
-## What we keep enabled (by design)
-
-- Flash Attention (SYCL backend support since ~2026.03)
-- Speculative decoding / MTP paths
-- Reorder / optimized mul_mat kernels for Q4_K etc.
-- Dynamic backends (GGML_BACKEND_DL)
-- F16 KV by default (critical for B70)
-- Full CPU variant fallbacks
-
-We explicitly do **not** set `GGML_SYCL_DISABLE_OPT`.
-
-## CI / Automatic builds (new split workflow)
-
-We now use **two dedicated workflows**:
-
-| Workflow                  | Branch | Schedule              | What it tracks                              | Behavior |
-|---------------------------|--------|-----------------------|---------------------------------------------|----------|
-| `build-stable.yml`        | main   | Every 4 hours         | llama.cpp `v*` tags + **all** Intel deps    | Build temp tag if anything changed → open Issue |
-| `build-dev.yml`           | dev    | Saturday 00:00 UTC    | llama.cpp + latest deps                     | 2a: if latest llama tag is `v*` → skip + guidance Issue<br>2b: clone the latest `b*` tag + latest deps, build temp tag + open Issue |
-
-**Temporary tags** are created (e.g. `server-v1.XX-YYYYMMDD-HHMM` or `server-dev-...`).
-
-After the workflow opens a GitHub Issue with diffs, **you** (the maintainer) pull & test on the real B70 server. When satisfied, you create a proper release tag (or point `dev`).
-
-### Manual trigger
-- Go to Actions → choose `Build Stable` or `Build Dev` → Run workflow.
-
-### Updating pins manually (still supported)
-You can still edit `.devops/intel.Dockerfile` and bump versions. The next scheduled run (or manual trigger) will pick up the change if you want CI to validate it.
-
-See the two workflow files for exact logic.
-
-Test matrix we care about:
-- Qwen3 / Qwen3.6 27B dense + MTP variants (Q4_K_M, Q5_K etc.)
-- Flash-attn on/off impact
-- Large context (24k–80k+)
-- Multi-GPU split if relevant
+Then run with the env vars above. **Note:** a bare-metal build may hit the Intel driver "version triangle" and fail to initialize at runtime — the prebuilt container is the reliable path (see `docs/B70-SYCL-KNOWLEDGE.md` §2).
 
 ## Performance notes (B70)
 
-Community reports (as of mid-2026):
-- Vulkan is often fastest for raw speed on some workloads.
-- SYCL (this path) frequently wins on generation throughput and stability for long contexts when tuned.
-- Use f16 KV. Mixed/dynamic quants can miss optimized paths.
-- AOT with `bmg-g31` reduces cold-start JIT cost.
+- **llama.cpp + SYCL (this path)** is the throughput/stability choice for long contexts and **agent workloads** once tuned.
+- It is **2–3× slower than vLLM** on raw single-shot speed because the SYCL backend has not wired B70's XMX matrix units yet — an upstream TODO (`SYCL_USE_XMX` is a misnomer). Recheck on each llama.cpp update.
+- **AOT with `bmg-g31`** sharply reduces cold-start JIT cost / SIGSEGV risk.
+- Always benchmark your exact model + quant. Batch/aggregate throughput, not just single-stream decode, is where B70 shines.
 
-Always benchmark your exact model + quant.
+See `benchmark/` for measured numbers.
+
+## CI / Automatic builds
+
+Two dedicated workflows keep pins fresh without manual work:
+
+| Workflow | Branch | Schedule | What it tracks |
+|----------|--------|----------|----------------|
+| `build-stable.yml` | `main` | Every 4 hours | llama.cpp `v*` tags + **all** Intel deps (compute-runtime, IGC, Level Zero, oneAPI base) |
+| `build-dev.yml` | `dev` | Saturdays 00:00 UTC | llama.cpp + latest deps (skips when the newest tag is a release, else builds latest `b*`) |
+
+When a change is detected, CI builds a **temporary tag** (`server-vX.Y-YYYYMMDD-HHMM` / `server-dev-…`) and opens a GitHub Issue with diffs. The maintainer then pulls it to real B70 hardware, tests, and only then creates a proper named tag. Manual pins in the Dockerfile are still supported.
 
 ## Contributing
 
-- Open issues with exact `sycl-ls`, `uname -a`, oneAPI version, compute-runtime version, model, and command line.
-- PRs that update pins + provide before/after benchmarks on B70 are highly welcome.
-- We maintain this as a community overlay focused on Intel Arc B-Series. Upstream changes in ggml-org/llama.cpp are pulled in by rebuilding against fresh source.
+Contributions that keep the B-series current and high-performance are very welcome — see [`CONTRIBUTING.md`](./CONTRIBUTING.md). Especially valuable: verified version-pin updates and before/after **benchmarks on real B70 hardware**.
 
-## Credits
+## License & credits
 
-- Upstream: https://github.com/ggml-org/llama.cpp
-- Intel oneAPI / compute-runtime teams
-- Community testers on r/LocalLLM, Level1Techs, etc. who shared B70 + SYCL recipes
-
-License: Same as upstream (MIT for the project structure + docs here).
+- License: same as upstream — MIT for the project structure and docs here.
+- Upstream: [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)
+- Intel oneAPI / compute-runtime teams.
+- Community testers on r/LocalLLM, Level1Techs, etc. who shared B70 + SYCL recipes.
 
 ---
 
-**This is a community effort.** Use at your own risk. Test thoroughly with your workloads. Report issues here so we can keep the pins fresh for B70.
+**This is a community effort.** Use at your own risk. Test thoroughly with your workloads and report issues so the pins stay fresh for B70.

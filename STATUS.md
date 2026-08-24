@@ -1,29 +1,43 @@
-# Project Status (Community)
+# Project Status
 
-**Focus**: Up-to-date llama.cpp + SYCL Docker for Intel Arc Pro B70 (and other Battlemage B-series).
+**Focus:** an up-to-date llama.cpp + SYCL Docker image for the Intel Arc Pro B70 (and other Battlemage B-series).
 
-**Current defaults in Dockerfile** (as of creation):
-- Base: intel/deep-learning-essentials devel (2026.1 series target)
-- IGC: v2.34.4
-- Compute Runtime: 26.18.38308.1
-- Level Zero: 1.28.2
-- Device arch: bmg-g31 (AOT)
-- GGML_SYCL_F16=ON
-- All major features left enabled (Flash-Attn, reorder kernels, MTP paths, dynamic backends)
+> **Recommended path:** prebuilt `llama.cpp-sycl-b70:server` container + MTP3/96K + **q8_0 KV** + all-ggml-org stack. Verified **5/5** on the benchmark suite. See `benchmark/` for the full evidence.
 
-**Known working on**:
-- Single B70 for Qwen3/Qwen3.6 ~27B dense models (Q4_K_M and similar)
-- Flash Attention enabled
-- Speculative/MTP draft models supported by the binary
+## Current default pins in `.devops/intel.Dockerfile`
 
-**Not disabled**:
-- No GGML_SYCL_DISABLE_OPT
-- Flash Attention available
-- Full set of kernels for Q4_K / Q5_K / Q6_K reorder etc.
+| Component | Version |
+|-----------|---------|
+| Base image | `intel/deep-learning-essentials:2026.1.2-devel-ubuntu24.04` |
+| IGC | `v2.34.4` |
+| Compute Runtime | `26.18.38308.1` |
+| Level Zero | `1.28.2` |
+| igdgmm | `22.10.0` |
+| Device arch | `bmg-g31` (AOT) |
+| GGML_SYCL_F16 | `ON` |
+| Web UI build | `OFF` by default (`BUILD_WEBUI=0`), enabled via `--build-arg BUILD_WEBUI=1` |
 
-**How to help**:
-- Update pins when Intel releases newer compute-runtime for B70
-- Add benchmark data in issues/PRs
-- Improve docs for multi-GPU or specific model families
+All major features remain enabled: Flash Attention, reorder kernels, MTP / speculative paths, and dynamic backends (`GGML_BACKEND_DL`). **No `GGML_SYCL_DISABLE_OPT`.**
 
-Last updated: 2026-08-22T17:33:39-04:00
+## Verified working on
+
+- Single B70, Qwen3.8-27B (Q4_K_M) + BF16 MTP draft + mmproj:
+  - **MTP3 + 96k + q8_0 KV — 5/5 text tasks** (recommended).
+  - **MTP4 + 128k + q8_0 KV — 5/5 text + 3 vision** (max context).
+  - no-draft + 128k + f16 KV — stable agent workhorse.
+- Flash Attention enabled; speculative/MTP drafts supported by the binary.
+- `pcie_aspm=off` host flag for PCIe stability (B450).
+
+## Known limitations
+
+- Single-shot speed is 2–3× below vLLM because the SYCL backend has not wired B70's XMX matrix units (upstream TODO). Re-evaluate on each llama.cpp update.
+- Vision works (on par with a dual-3060 27B in quality) but is slow — visual-encoding prefill dominates.
+- f16 KV + MTP + ≥96k context OOMs; q8_0 KV required for that combination.
+
+## How to help
+
+- Update pins when Intel releases newer compute-runtime/IGC for B70 — the CI workflows will also catch them.
+- Add benchmark data in issues/PRs (use `benchmark/METHODOLOGY.md` and add reports under `benchmark/results/`).
+- Improve docs for multi-GPU or specific model families.
+
+Last updated: 2026-08-24.
