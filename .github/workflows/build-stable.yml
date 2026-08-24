@@ -118,7 +118,7 @@ jobs:
 
           # Try to extract ubuntu suffix from any level-zero deb asset (e.g. level-zero_1.32.0+u24.04_amd64.deb)
           UBUNTU=$(curl -s "https://api.github.com/repos/oneapi-src/level-zero/releases/latest" | \
-            jq -r '.assets[] | select(.name | test("level-zero_[0-9].*u[0-9]")) | .name' | head -1 | \
+            jq -r '.assets[] | select(.name | test("(libze[0-9]?|level-zero)_[0-9].*u[0-9]")) | .name' | head -1 | \
             sed -E 's/.*\+u([0-9.]+).*/u\1/' | head -1)
           # Fallback: derive from oneAPI tag later if empty
           echo "latest_level_zero=$LATEST" >> $GITHUB_OUTPUT

@@ -49,14 +49,20 @@ ARG GGML_SYCL_F16=ON
 ARG GGML_SYCL_DEVICE_ARCH=bmg-g31   # Critical for Battlemage AOT kernels, avoids JIT SIGSEGV
 
 # Install tools needed for AOT (ocloc + level-zero) using versions from build-args
+# NOTE: level-zero >= 1.29 renamed its .deb packages from level-zero/level-zero-devel
+#       to libze1/libze-dev. Try the new names first, fall back to the old names so
+#       both pin generations build.
 RUN apt-get update && \
     apt-get install -y git libssl-dev wget ca-certificates && \
     cd /tmp && \
-    wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero.deb && \
-    wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero-devel_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero-devel.deb && \
+    (wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze1_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero.deb \
+      || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero.deb) && \
+    (wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze-dev_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero-devel.deb \
+      || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero-devel_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero-devel.deb) && \
     apt-get -o Dpkg::Options::="--force-overwrite" install -y ./level-zero.deb ./level-zero-devel.deb && \
     rm -f /tmp/level-zero.deb /tmp/level-zero-devel.deb && \
-    wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.deb" -O /tmp/ocloc.deb && \
+    (wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.deb" -O /tmp/ocloc.deb \
+      || wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION}_amd64.deb" -O /tmp/ocloc.deb) && \
     apt-get -o Dpkg::Options::="--force-overwrite" install -y /tmp/ocloc.deb && \
     rm -f /tmp/ocloc.deb
 
