@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: 'Force build even if logic says skip'
+        description: 'Force a dev build even if logic says skip'
         required: false
         default: 'false'
         type: boolean
 
 jobs:
   check-and-build-dev:
-    # Only run when on dev branch
+    # Only run on dev branch (schedule or manual)
     if: |
       github.ref_name == 'dev' ||
       (github.event_name == 'workflow_dispatch')
@@ -37,24 +37,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       # ============================================================
-      # 1. Parse current pins (same as stable)
-      # ============================================================
-      - name: Parse current dependency pins
-        id: current
-        run: |
-          DF=.devops/intel.Dockerfile
-          ONEAPI=$(grep '^ARG ONEAPI_VERSION=' "$DF" | head -1 | cut -d= -f2)
-          IGC=$(grep '^ARG IGC_VERSION=' "$DF" | head -1 | cut -d= -f2)
-          COMPUTE=$(grep '^ARG COMPUTE_RUNTIME_VERSION=' "$DF" | head -1 | cut -d= -f2)
-          L0=$(grep '^ARG LEVEL_ZERO_VERSION=' "$DF" | head -1 | cut -d= -f2)
-
-          echo "current_oneapi=$ONEAPI" >> $GITHUB_OUTPUT
-          echo "current_igc=$IGC" >> $GITHUB_OUTPUT
-          echo "current_compute=$COMPUTE" >> $GITHUB_OUTPUT
-          echo "current_level_zero=$L0" >> $GITHUB_OUTPUT
-
-      # ============================================================
-      # 2. Fetch llama.cpp latest tag + decide 2a vs 2b
+      # Detect newest llama.cpp tags, decide 2a (point to stable) vs 2b (build dev)
       # ============================================================
       - name: Fetch upstream llama.cpp latest v* and b* tags
         id: llama
@@ -64,70 +47,27 @@ jobs:
 
           LATEST_V=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^v[0-9]' | head -1)
           LATEST_B=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^b[0-9]+' | head -1)
+          V_DATE=$(git for-each-ref --format='%(creatordate:iso8601)' "refs/tags/$LATEST_V")
+          B_DATE=$(git for-each-ref --format='%(creatordate:iso8601)' "refs/tags/$LATEST_B")
 
           echo "latest_v=$LATEST_V" >> $GITHUB_OUTPUT
           echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
-
-          V_DATE=$(git for-each-ref --format='%(creatordate:iso8601)' "refs/tags/$LATEST_V" 2>/dev/null || echo "1970-01-01")
-          B_DATE=$(git for-each-ref --format='%(creatordate:iso8601)' "refs/tags/$LATEST_B" 2>/dev/null || echo "1970-01-01")
-
           echo "v_date=$V_DATE" >> $GITHUB_OUTPUT
           echo "b_date=$B_DATE" >> $GITHUB_OUTPUT
 
           if [[ "$B_DATE" > "$V_DATE" ]]; then
             echo "is_release_tag=false" >> $GITHUB_OUTPUT
-            echo "Latest is b tag ($LATEST_B) newer than v ($LATEST_V) — will build dev"
+            echo "Newer b tag ($LATEST_B) than v ($LATEST_V) — will build dev"
           else
             echo "is_release_tag=true" >> $GITHUB_OUTPUT
-            echo "Latest tag is v* release ($LATEST_V), no newer b tag — skip dev build"
+            echo "Latest tag is v* release ($LATEST_V); no newer b — skip dev build"
           fi
 
       # ============================================================
-      # 3. Detect latest dependencies (always use latest for dev)
-      # ============================================================
-      - name: Detect latest Intel stack (for dev)
-        id: deps
-        run: |
-          REL_COMPUTE=$(curl -s https://api.github.com/repos/intel/compute-runtime/releases/latest)
-          LATEST_COMPUTE=$(echo "$REL_COMPUTE" | jq -r '.tag_name')
-          COMPUTE_FULL=$(echo "$REL_COMPUTE" | jq -r '.assets[] | select(.name | contains("ocloc_") and endswith(".deb")) | .name' | head -1 | sed -E 's/.*ocloc_([0-9.-]+)_amd64.*/\1/')
-          [ -z "$COMPUTE_FULL" ] && COMPUTE_FULL="${LATEST_COMPUTE}-0"
-
-          # Dynamic IGDGMM from compute-runtime assets
-          IGDGMM=$(echo "$REL_COMPUTE" | jq -r '.assets[] | select(.name | test("igdgmm|libigdgmm")) | .name' | head -1 | sed -E 's/.*libigdgmm[0-9]+_([0-9.]+)_amd64.*/\1/')
-          [ -z "$IGDGMM" ] && IGDGMM=""
-
-          REL_IGC=$(curl -s https://api.github.com/repos/intel/intel-graphics-compiler/releases/latest)
-          LATEST_IGC=$(echo "$REL_IGC" | jq -r '.tag_name')
-          IGC_FULL=$(echo "$REL_IGC" | jq -r '.assets[] | select(.name | contains("igc-core-") and endswith(".deb")) | .name' | head -1 | sed -E 's/.*igc-core-([0-9_+.]+)_amd64.*/\1/')
-          [ -z "$IGC_FULL" ] && IGC_FULL=""
-
-          LATEST_L0=$(curl -s https://api.github.com/repos/oneapi-src/level-zero/releases/latest | jq -r '.tag_name' | sed 's/^v//')
-          LATEST_ONEAPI=$(curl -s "https://hub.docker.com/v2/repositories/intel/deep-learning-essentials/tags/?page_size=20" | \
-                          jq -r '.results[] | select(.name | contains("devel-ubuntu24.04")) | .name' | sort -r | head -1)
-          ONEAPI_TAG=${LATEST_ONEAPI:-}
-
-          # Derive ubuntu version dynamically
-          UBUNTU_FROM_ONEAPI=$(echo "$ONEAPI_TAG" | sed -E 's/.*ubuntu([0-9.]+).*/u\1/')
-          [ -z "$UBUNTU_FROM_ONEAPI" ] && UBUNTU_FROM_ONEAPI=""
-
-          # Try level-zero asset for ubuntu suffix
-          UBUNTU_L0=$(curl -s "https://api.github.com/repos/oneapi-src/level-zero/releases/latest" | \
-            jq -r '.assets[] | select(.name | test("(libze[0-9]?|level-zero)_[0-9].*u[0-9]")) | .name' | head -1 | \
-            sed -E 's/.*\+u([0-9.]+).*/u\1/' | head -1)
-          UBUNTU_FINAL=${UBUNTU_L0:-$UBUNTU_FROM_ONEAPI}
-
-          echo "latest_compute=$LATEST_COMPUTE" >> $GITHUB_OUTPUT
-          echo "latest_compute_full=$COMPUTE_FULL" >> $GITHUB_OUTPUT
-          echo "latest_igdgmm=$IGDGMM" >> $GITHUB_OUTPUT
-          echo "latest_igc=$LATEST_IGC" >> $GITHUB_OUTPUT
-          echo "latest_igc_full=$IGC_FULL" >> $GITHUB_OUTPUT
-          echo "latest_level_zero=$LATEST_L0" >> $GITHUB_OUTPUT
-          echo "level_zero_ubuntu_version=$UBUNTU_FINAL" >> $GITHUB_OUTPUT
-          echo "latest_oneapi=$ONEAPI_TAG" >> $GITHUB_OUTPUT
-
-      # ============================================================
-      # 4. Decision logic (2a / 2b)
+      # Decision: 2a (point-to-stable / skip) or 2b (build dev from b tag).
+      # Uses the Dockerfile's tested Intel pins — never auto-bumps IGC /
+      # compute-runtime / level-zero independently (released separately and
+      # "latest of each" does not form a compatible stack).
       # ============================================================
       - name: Decide dev build strategy
         id: decide
@@ -139,25 +79,23 @@ jobs:
           if [[ "$FORCE" == "true" ]]; then
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "strategy=force" >> $GITHUB_OUTPUT
-            echo "reason=Forced by manual dispatch" >> $GITHUB_OUTPUT
+            echo "reason=Forced by manual dispatch"
             exit 0
           fi
 
           if [[ "$IS_RELEASE" == "true" ]]; then
-            # 2a: Latest llama.cpp tag is v* (or no newer b) → skip build
             echo "should_build=false" >> $GITHUB_OUTPUT
             echo "strategy=point-to-stable" >> $GITHUB_OUTPUT
-            echo "reason=Latest llama.cpp tag is a release (v*). Suggest pointing dev image to latest stable." >> $GITHUB_OUTPUT
+            echo "reason=Latest llama.cpp tag is a release (v*). Suggest pointing the dev image to the latest stable."
           else
-            # 2b: Newer b* tag exists → build using that specific b tag
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "strategy=build-dev" >> $GITHUB_OUTPUT
             echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
-            echo "reason=Newer b tag $LATEST_B available. Building dev from b tag + latest dependencies." >> $GITHUB_OUTPUT
+            echo "reason=Newer b tag $LATEST_B available. Building dev from b tag with Dockerfile Intel pins."
           fi
 
       # ============================================================
-      # 5. 2a path: Skip build, create guidance issue
+      # 2a path: skip build, open guidance issue
       # ============================================================
       - name: Create guidance issue (2a - point dev to stable)
         if: steps.decide.outputs.strategy == 'point-to-stable'
@@ -171,16 +109,16 @@ jobs:
               title: `B70 Dev: Latest llama.cpp is release tag (${latest}) — align dev image?`,
               body: `**Analysis**\n\n` +
                     `The latest tag on ggml-org/llama.cpp is **${latest}** (a release / v* tag).\n\n` +
-                    `Per current policy, the dev branch should usually track a stable release until new dev work appears.\n\n` +
+                    `Per current policy the dev branch should track a stable release until new dev work appears.\n\n` +
                     `**Recommended action**\n` +
-                    `1. Update any dev references / examples / docker-compose to use the latest stable image.\n` +
-                    `2. Optionally create a dev tag that points at the current stable image (e.g. \`server-dev-${latest}\`).\n\n` +
-                    `If you want to force a dev build anyway, re-run this workflow with \`force: true\`.`,
+                    `1. Update dev references / examples to use the latest stable image.\n` +
+                    `2. Optionally create a dev tag pointing at the current stable image (e.g. \`server-dev-${latest}\`).\n\n` +
+                    `Force a build anyway with \`force: true\`.`,
               labels: ['dev', 'B70']
             });
 
       # ============================================================
-      # 6. 2b path: Build dev image
+      # 2b path: build the dev image
       # ============================================================
       - name: Set up Docker Buildx
         if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
@@ -199,11 +137,9 @@ jobs:
         id: clone
         run: |
           LATEST_B="${{ steps.llama.outputs.latest_b }}"
-          echo "Cloning llama.cpp at b tag: $LATEST_B (not main)"
+          echo "Cloning llama.cpp at b tag: $LATEST_B"
           rm -rf llama.cpp
           git clone --depth 1 --branch "$LATEST_B" https://github.com/ggml-org/llama.cpp llama.cpp
-          cd llama.cpp
-          echo "Using b tag: $LATEST_B"
 
       - name: Compute dev temporary tag
         if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
@@ -226,14 +162,6 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository }}/llama-sycl-b70:${{ steps.tag.outputs.image_tag }}
           build-args: |
-            ONEAPI_VERSION=${{ steps.deps.outputs.latest_oneapi }}
-            IGC_VERSION=${{ steps.deps.outputs.latest_igc }}
-            IGC_VERSION_FULL=${{ steps.deps.outputs.latest_igc_full }}
-            COMPUTE_RUNTIME_VERSION=${{ steps.deps.outputs.latest_compute }}
-            COMPUTE_RUNTIME_VERSION_FULL=${{ steps.deps.outputs.latest_compute_full }}
-            IGDGMM_VERSION=${{ steps.deps.outputs.latest_igdgmm }}
-            LEVEL_ZERO_VERSION=${{ steps.deps.outputs.latest_level_zero }}
-            LEVEL_ZERO_UBUNTU_VERSION=${{ steps.deps.outputs.level_zero_ubuntu_version }}
             BUILD_WEBUI=0
             GGML_SYCL_F16=ON
             GGML_SYCL_DEVICE_ARCH=bmg-g31
@@ -253,19 +181,12 @@ jobs:
             body += `**Image**: \`${full}\`\n`;
             body += `**llama.cpp b tag**: ${{ steps.llama.outputs.latest_b }}\n`;
             body += `**Build**: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n`;
-
-            body += `### Dependency versions used in this build\n`;
-            body += `- ONEAPI: ${{ steps.deps.outputs.latest_oneapi }}\n`;
-            body += `- IGC: ${{ steps.deps.outputs.latest_igc }}\n`;
-            body += `- Compute Runtime: ${{ steps.deps.outputs.latest_compute }}\n`;
-            body += `- Level Zero: ${{ steps.deps.outputs.latest_level_zero }}\n\n`;
-
+            body += `**Intel stack**: pinned in \`.devops/intel.Dockerfile\` (not auto-bumped — Intel components are released independently and may not form a compatible set).\n\n`;
             body += `**Reason**: ${reason}\n\n`;
-
             body += `### Next steps on B70\n`;
             body += `1. Pull: \`docker pull ${full}\`\n`;
             body += `2. Test (MTP + long context recommended)\n`;
-            body += `3. When happy, create a proper dev tag (e.g. \`server-dev-YYYYMMDD\` or point \`dev\` tag).\n\n`;
+            body += `3. When happy, create a proper dev tag.\n\n`;
             body += `This is a development snapshot. Use at your own risk.`;
 
             await github.rest.issues.create({
