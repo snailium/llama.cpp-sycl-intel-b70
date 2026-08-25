@@ -62,6 +62,12 @@ jobs:
           L0=$(echo "$BODY"  | grep -oE 'level-zero@v[0-9]+(\.[0-9]+)+' | head -1 | cut -d@ -f2)
           GMM=$(echo "$BODY" | grep -oE 'intel-gmmlib-[0-9]+(\.[0-9]+)+' | head -1 | sed -E 's/.*-([0-9.]+)/\1/')
 
+          # Fail loudly if any paired version failed to extract (release-notes
+          # formatting drift would otherwise silently produce empty pins).
+          [ -z "$IGC" ] && { echo "ERR: failed to extract IGC from compute-runtime $CR release notes" >&2; exit 1; }
+          [ -z "$L0" ]  && { echo "ERR: failed to extract level-zero from compute-runtime $CR release notes" >&2; exit 1; }
+          [ -z "$GMM" ] && { echo "ERR: failed to extract gmmlib from compute-runtime $CR release notes" >&2; exit 1; }
+
           # compute-runtime FULL version from the ocloc asset name
           CRF=$(echo "$CRREL" | jq -r '.assets[] | select((.name|contains("ocloc_")) and (.name|endswith(".deb"))) | .name' | head -1 | sed -E 's/.*ocloc_([0-9.-]+)_amd64.*/\1/')
           [ -z "$CRF" ] && CRF="${CR}-0"
