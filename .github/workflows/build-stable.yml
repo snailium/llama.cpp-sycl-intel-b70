@@ -23,6 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       - name: Configure git
         run: |
@@ -52,7 +53,7 @@ jobs:
         id: deps
         run: |
           set -e
-          CRREL=$(curl -s https://api.github.com/repos/intel/compute-runtime/releases/latest)
+          CRREL=$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/intel/compute-runtime/releases/latest)
           CR=$(echo "$CRREL" | jq -r '.tag_name')
 
           # Paired versions from the release notes (authoritative pairing)
@@ -66,11 +67,11 @@ jobs:
           [ -z "$CRF" ] && CRF="${CR}-0"
 
           # IGC FULL version from IGC release assets
-          IGREL=$(curl -s "https://api.github.com/repos/intel/intel-graphics-compiler/releases/tags/$IGC")
+          IGREL=$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/intel/intel-graphics-compiler/releases/tags/$IGC")
           IGCF=$(echo "$IGREL" | jq -r '.assets[] | select((.name|contains("igc-core-")) and (.name|endswith(".deb")) and ((.name|contains("devel"))|not)) | .name' | head -1 | sed -E 's/.*igc-core-([0-9_+.]+)_amd64.*/\1/')
 
           # level-zero ubuntu suffix from assets
-          LZREL=$(curl -s "https://api.github.com/repos/oneapi-src/level-zero/releases/tags/$L0")
+          LZREL=$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/oneapi-src/level-zero/releases/tags/$L0")
           LZU=$(echo "$LZREL" | jq -r '.assets[].name' | grep -oE 'u24\.[0-9]+' | head -1)
           [ -z "$LZU" ] && LZU="u24.04"
 

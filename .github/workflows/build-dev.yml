@@ -50,11 +50,11 @@ jobs:
           git fetch upstream --tags --force
           LATEST_V=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^v[0-9]' | head -1)
           LATEST_B=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^b[0-9]+' | head -1)
-          B_DATE=$(git for-each-ref --format='%(creatordate:iso8601)' "refs/tags/$LATEST_B")
-          V_DATE=$(git for-each-ref --format='%(creatordate:iso8601)' "refs/tags/$LATEST_V")
+          B_DATE=$(git for-each-ref --format='%(creatordate:unix)' "refs/tags/$LATEST_B")
+          V_DATE=$(git for-each-ref --format='%(creatordate:unix)' "refs/tags/$LATEST_V")
           echo "latest_v=$LATEST_V" >> $GITHUB_OUTPUT
           echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
-          if [[ "$B_DATE" > "$V_DATE" ]]; then
+          if [ "$B_DATE" -gt "$V_DATE" ]; then
             echo "is_release_tag=false" >> $GITHUB_OUTPUT
           else
             echo "is_release_tag=true" >> $GITHUB_OUTPUT
@@ -69,7 +69,7 @@ jobs:
         id: deps
         run: |
           set -e
-          CRREL=$(curl -s https://api.github.com/repos/intel/compute-runtime/releases/latest)
+          CRREL=$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/intel/compute-runtime/releases/latest)
           CR=$(echo "$CRREL" | jq -r '.tag_name')
           BODY=$(echo "$CRREL" | jq -r '.body')
           IGC=$(echo "$BODY" | grep -oE 'intel-graphics-compiler@v[0-9]+(\.[0-9]+)+' | head -1 | cut -d@ -f2)
@@ -77,9 +77,9 @@ jobs:
           GMM=$(echo "$BODY" | grep -oE 'intel-gmmlib-[0-9]+(\.[0-9]+)+' | head -1 | sed -E 's/.*-([0-9.]+)/\1/')
           CRF=$(echo "$CRREL" | jq -r '.assets[] | select((.name|contains("ocloc_")) and (.name|endswith(".deb"))) | .name' | head -1 | sed -E 's/.*ocloc_([0-9.-]+)_amd64.*/\1/')
           [ -z "$CRF" ] && CRF="${CR}-0"
-          IGREL=$(curl -s "https://api.github.com/repos/intel/intel-graphics-compiler/releases/tags/$IGC")
+          IGREL=$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/intel/intel-graphics-compiler/releases/tags/$IGC")
           IGCF=$(echo "$IGREL" | jq -r '.assets[] | select((.name|contains("igc-core-")) and (.name|endswith(".deb")) and ((.name|contains("devel"))|not)) | .name' | head -1 | sed -E 's/.*igc-core-([0-9_+.]+)_amd64.*/\1/')
-          LZREL=$(curl -s "https://api.github.com/repos/oneapi-src/level-zero/releases/tags/$L0")
+          LZREL=$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/oneapi-src/level-zero/releases/tags/$L0")
           LZU=$(echo "$LZREL" | jq -r '.assets[].name' | grep -oE 'u24\.[0-9]+' | head -1)
           [ -z "$LZU" ] && LZU="u24.04"
           echo "latest_compute=$CR" >> $GITHUB_OUTPUT

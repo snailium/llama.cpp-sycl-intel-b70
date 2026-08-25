@@ -92,12 +92,9 @@ COPY --from=web /app/tools/ui/dist/ tools/ui/dist/
 # Explicit device arch for B70/Battlemage pre-compilation (AOT)
 RUN if [ "${GGML_SYCL_F16}" = "ON" ]; then \
         echo "GGML_SYCL_F16 is set" \
-        && export OPT_SYCL_F16="-DGGML_SYCL_F16=ON" \
-        && export SYCL_PROGRAM_COMPILE_OPTIONS="-cl-fp32-correctly-rounded-divide-sqrt"; \
+        && export OPT_SYCL_F16="-DGGML_SYCL_F16=ON"; \
     fi && \
     echo "Building with dynamic libs + Battlemage AOT (bmg-g31)" && \
-    export PATH="/opt/intel/oneapi/compiler/2026.1/bin:/usr/bin:$PATH" && \
-    which ocloc || echo "ocloc not in PATH yet" && \
     cmake -S llama.cpp -B build \
       -DGGML_NATIVE=OFF \
       -DGGML_SYCL=ON \
@@ -113,6 +110,10 @@ RUN if [ "${GGML_SYCL_F16}" = "ON" ]; then \
 RUN mkdir -p /app/lib && \
     find build -name "*.so*" -exec cp -P {} /app/lib \;
 
+# Best-effort packaging of optional Python helper tools (conversion scripts,
+# gguf-py, requirements). llama.cpp's layout varies by version, so each copy
+# is intentionally tolerant of a missing source (|| true) — the server binary
+# itself is the required artifact, these are conveniences.
 RUN mkdir -p /app/full \
     && cp build/bin/* /app/full \
     && cp llama.cpp/*.py /app/full || true \
@@ -145,7 +146,11 @@ LABEL org.opencontainers.image.created=$BUILD_DATE \
       org.opencontainers.image.source=$IMAGE_SOURCE
 
 
-RUN mkdir /tmp/neo/ && cd /tmp/neo/ \
+# Install the driver stack. apt-get (not raw dpkg) tolerates packages the base
+# image already ships at the same version (e.g. libigdgmm12 22.10.0) and
+# resolves dependency order (libze1 before libze-intel-gpu1). Failures now
+# fail the build loudly instead of being swallowed by a bare `|| true`.
+RUN apt-get update && mkdir /tmp/neo/ && cd /tmp/neo/ \
   && wget https://github.com/intel/intel-graphics-compiler/releases/download/$IGC_VERSION/intel-igc-core-${IGC_VERSION_FULL}_amd64.deb \
   && wget https://github.com/intel/intel-graphics-compiler/releases/download/$IGC_VERSION/intel-igc-opencl-${IGC_VERSION_FULL}_amd64.deb \
   && wget https://github.com/intel/compute-runtime/releases/download/$COMPUTE_RUNTIME_VERSION/intel-ocloc-dbgsym_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.ddeb \
@@ -155,9 +160,9 @@ RUN mkdir /tmp/neo/ && cd /tmp/neo/ \
   && wget https://github.com/intel/compute-runtime/releases/download/$COMPUTE_RUNTIME_VERSION/libigdgmm12_${IGDGMM_VERSION}_amd64.deb \
   && wget https://github.com/intel/compute-runtime/releases/download/$COMPUTE_RUNTIME_VERSION/libze-intel-gpu1-dbgsym_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.ddeb \
   && wget https://github.com/intel/compute-runtime/releases/download/$COMPUTE_RUNTIME_VERSION/libze-intel-gpu1_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.deb \
-  && dpkg --install *.deb || true ; \
-  rm -f /usr/lib/x86_64-linux-gnu/libigc.so.2* /usr/lib/x86_64-linux-gnu/libiga64.so.2* ; \
-  ldconfig || true
+  && apt-get -o Dpkg::Options::="--force-overwrite" --allow-downgrades install -y ./*.deb \
+  && rm -f /usr/lib/x86_64-linux-gnu/libigc.so.2* /usr/lib/x86_64-linux-gnu/libiga64.so.2* \
+  && ldconfig
 
 RUN apt-get update \
     && apt-get install -y libgomp1 curl ffmpeg \
@@ -199,7 +204,7 @@ ENTRYPOINT ["/app/tools.sh"]
 FROM base AS light
 
 COPY --from=build /app/lib/ /app
-COPY --from=build /app/full/llama /app/full/llama-cli /app/full/llama-completion /app
+COPY --from=build /app/full/llama /app/full/llama-cli /app/full/llama-completion /app/
 
 WORKDIR /app
 
@@ -211,7 +216,7 @@ FROM base AS server
 ENV LLAMA_ARG_HOST=0.0.0.0
 
 COPY --from=build /app/lib/ /app
-COPY --from=build /app/full/llama /app/full/llama-server /app
+COPY --from=build /app/full/llama /app/full/llama-server /app/
 
 WORKDIR /app
 
