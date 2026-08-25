@@ -46,6 +46,8 @@ Two rules drive every recommendation:
 | 2026-08-21 | [mtp4-128k](./results/2026-08-21-mtp4-128k.md) | mtp4-128k | **5/5 + 3 vision**; extreme vertex config (old stack) |
 | 2026-08-25 | [mtp3-q8-128k](./results/2026-08-25-mtp3-q8-128k.md) | mtp3-q8-128k | **Full suite pass** + T5 310 cm on upgrade stack; gate for `:stable` |
 | 2026-08-25 | [v030-u26-mtp4-q8](./results/2026-08-25-v030-u26-mtp4-q8.md) | v030-u26-mtp4-q8 | **Full suite (T1–T5 + V1–V3) pass**, 0 crashes, MTP4 acc 0.57; promoted to `:stable`/`:v0.3.0` |
+| 2026-08-25 | [v030-f16-96k-dnn-mtp4](./results/2026-08-25-v030-f16-96k-dnn-mtp4.md) | v030-f16-96k-dnn-mtp4 | DNN/XMX prefill **430 t/s vs 212**, decode 22.2; VRAM edge (R1) |
+| 2026-08-25 | [v030-f16-96k-dnn-mtp3-q4](./results/2026-08-25-v030-f16-96k-dnn-mtp3-q4.md) | v030-f16-96k-dnn-mtp3-q4 | DNN/XMX **stable**: prefill 392, decode 26.2, acc 0.573, +1.5GB VRAM (R2) |
 
 ## Incidents
 

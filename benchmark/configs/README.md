@@ -6,6 +6,8 @@ Each file under this directory documents one **stable, reproducible server confi
 
 | Config | Draft | Context | KV cache | Purpose |
 |--------|-------|---------|----------|---------|
+| [v030-f16-96k-dnn-mtp3-q4](./v030-f16-96k-dnn-mtp3-q4.md) | Q4_0 MTP (n=3) | 96k | **f16** | **Validated stable DNN/XMX candidate** (prefill 1.85×, decode 26.2) |
+| [v030-f16-96k-dnn-mtp4](./v030-f16-96k-dnn-mtp4.md) | Q8_0 MTP (n=4) | 96k | **f16** | DNN/XMX prefill experiment (Q8-MTP4, VRAM edge) — superseded |
 | [v030-u26-mtp4-q8](./v030-u26-mtp4-q8.md) | Q8_0 MTP (n=4) | 128k | **q8_0** | **Recommended — current production** (v0.3.0 + u26 base, upgrade stack) |
 | [mtp3-q8-128k](./mtp3-q8-128k.md) | Q8_0 MTP (n=3) | 128k | **q8_0** | Prior production (superseded by MTP4) |
 | [draft2b-128k](./draft2b-128k.md) | None (2B tested) | 128k | **f16** (q8_0 test) | Baseline / speculative-vs-not comparison |
