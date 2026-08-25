@@ -104,9 +104,19 @@ jobs:
             echo "should_build=false" >> $GITHUB_OUTPUT; echo "strategy=point-to-stable" >> $GITHUB_OUTPUT
             echo "reason=Latest llama.cpp tag is a release (v*). Suggest pointing the dev image to the latest stable."
           else
-            echo "should_build=true" >> $GITHUB_OUTPUT; echo "strategy=build-dev" >> $GITHUB_OUTPUT
-            echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
-            echo "reason=Newer b tag $LATEST_B available. Building dev from b tag with compute-runtime-derived Intel pins."
+            # Build dev from b tag, but skip if this exact b+CR combo already built.
+            REPO="${{ github.repository }}/llama-sycl-b70"
+            PREFIX="server-dev-${LATEST_B}-c${{ steps.deps.outputs.latest_compute }}-"
+            TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:${REPO}:pull" | jq -r .token)
+            TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" "https://ghcr.io/v2/${REPO}/tags/list" | jq -r '.tags[]? // empty' || true)
+            if [ -n "$TOKEN" ] && echo "$TAGS" | grep -qF "$PREFIX"; then
+              echo "should_build=false" >> $GITHUB_OUTPUT; echo "strategy=skip-duplicate" >> $GITHUB_OUTPUT
+              echo "reason=Already built dev ${PREFIX%?} in GHCR - skipping redundant rebuild"
+            else
+              echo "should_build=true" >> $GITHUB_OUTPUT; echo "strategy=build-dev" >> $GITHUB_OUTPUT
+              echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
+              echo "reason=Newer b tag $LATEST_B available (not yet built). Building dev with compute-runtime-derived Intel pins."
+            fi
           fi
 
       - name: Create guidance issue (2a - point dev to stable)

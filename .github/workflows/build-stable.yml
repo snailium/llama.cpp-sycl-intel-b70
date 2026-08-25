@@ -86,33 +86,41 @@ jobs:
           echo "  IGC=$IGC ($IGCF)   L0=${L0#v} ($LZU)   gmmlib=$GMM   CR_FULL=$CRF"
 
       # ============================================================
-      # Decide: rebuild if compute-runtime moved ahead OR llama.cpp moved
-      # ahead of the vendored subtree. Intel companions come from
-      # compute-runtime, so a single "compute-runtime newer" check covers
-      # the whole Intel stack.
+      # Decide: skip if this exact version combo is already built.
+      # The image tag embeds the version fingerprint
+      # (server-c<CR>-<llama>-), so check GHCR for a tag with that
+      # prefix. If it exists we already built this combo -> do NOT
+      # rebuild (previously it rebuilt identical images every 4h
+      # because the vendored llama.cpp subtree is never refreshed,
+      # so the old "subtree older than tag" heuristic always fired).
+      # A new compute-runtime or llama.cpp tag changes the prefix,
+      # so this check auto-covers version updates too.
       # ============================================================
-      - name: Decide if build is needed
+      - name: Decide if build is needed (skip if this combo already built)
         id: decide
         run: |
+          set -e
+          REPO="${{ github.repository }}/llama-sycl-b70"
+          PREFIX="server-c${{ steps.deps.outputs.latest_compute }}-${{ steps.llama.outputs.latest_v }}-"
           SHOULD_BUILD=false
           REASON=""
 
-          CR_CUR=$(grep '^ARG COMPUTE_RUNTIME_VERSION=' .devops/intel.Dockerfile | head -1 | cut -d= -f2)
-          if [ -d llama.cpp ]; then
-            CUR_LLAMA=$(git log -1 --format=%ci -- llama.cpp 2>/dev/null || echo "1970-01-01")
-          else
-            CUR_LLAMA="1970-01-01"
-          fi
+          TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:${REPO}:pull" | jq -r .token)
+          TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" "https://ghcr.io/v2/${REPO}/tags/list" | jq -r '.tags[]? // empty' || true)
 
-          if [[ "$CR_CUR" != "${{ steps.deps.outputs.latest_compute }}" ]]; then
-            SHOULD_BUILD=true; REASON="New compute-runtime ${{ steps.deps.outputs.latest_compute }} (was $CR_CUR)"
-          fi
-          if [[ "${{ steps.llama.outputs.v_date }}" > "$CUR_LLAMA" ]]; then
-            SHOULD_BUILD=true; REASON="$REASON + Newer llama.cpp ${{ steps.llama.outputs.latest_v }}"
+          if [ -z "$TOKEN" ]; then
+            # registry check inconclusive -> fail closed to avoid a duplicate build
+            REASON="GHCR auth failed - skipped (will re-check next run)"
+          elif echo "$TAGS" | grep -qF "$PREFIX"; then
+            REASON="Already built ${PREFIX%?} in GHCR - skipping redundant rebuild"
+          else
+            SHOULD_BUILD=true
+            CR_CUR=$(grep '^ARG COMPUTE_RUNTIME_VERSION=' .devops/intel.Dockerfile | head -1 | cut -d= -f2)
+            REASON="New stack: CR ${{ steps.deps.outputs.latest_compute }} + llama.cpp ${{ steps.llama.outputs.latest_v }} (Dockerfile pin $CR_CUR)"
           fi
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
-          echo "build_reason=${REASON:-No change detected (compute-runtime $CR_CUR current)}"
+          echo "build_reason=$REASON"
 
       # ============================================================
       # Build stage (uses compute-runtime-derived pin set)
