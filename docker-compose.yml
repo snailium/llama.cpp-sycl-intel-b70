@@ -7,7 +7,7 @@ services:
       dockerfile: .devops/intel.Dockerfile
       target: server
       args:
-        ONEAPI_VERSION: "2026.1.2-devel-ubuntu24.04"
+        ONEAPI_VERSION: "2026.1.2-devel-ubuntu26.04"
         GGML_SYCL_F16: "ON"
         GGML_SYCL_DEVICE_ARCH: "bmg-g31"
     image: llama.cpp-sycl-b70:server

@@ -3,7 +3,7 @@
 # Goal: Latest components, all features enabled (Flash Attention, MTP/spec-dec, etc.)
 # Do NOT disable optimizations.
 
-ARG ONEAPI_VERSION=2026.1.2-devel-ubuntu24.04
+ARG ONEAPI_VERSION=2026.1.2-devel-ubuntu26.04
 ARG BUILD_DATE=N/A
 ARG APP_VERSION=N/A
 ARG APP_REVISION=N/A
@@ -11,7 +11,7 @@ ARG APP_REVISION=N/A
 # === Dynamic Intel stack versions (passed from CI via --build-arg) ===
 # Hoisted to top level so they are visible for FROM and every stage (build + base + server)
 ARG LEVEL_ZERO_VERSION=1.28.2
-ARG LEVEL_ZERO_UBUNTU_VERSION=u24.04
+ARG LEVEL_ZERO_UBUNTU_VERSION=u26.04
 ARG COMPUTE_RUNTIME_VERSION=26.18.38308.1
 ARG COMPUTE_RUNTIME_VERSION_FULL=26.18.38308.1-0
 ARG IGC_VERSION=v2.34.4

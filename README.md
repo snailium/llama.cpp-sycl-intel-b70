@@ -21,7 +21,7 @@ docker build \
   --target server \
   -t llama.cpp-sycl-b70:server \
   -f .devops/intel.Dockerfile \
-  --build-arg ONEAPI_VERSION=2026.1.2-devel-ubuntu24.04 \
+  --build-arg ONEAPI_VERSION=2026.1.2-devel-ubuntu26.04 \
   --build-arg GGML_SYCL_F16=ON \
   --build-arg GGML_SYCL_DEVICE_ARCH=bmg-g31 \
   .
