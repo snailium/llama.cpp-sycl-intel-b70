@@ -5,7 +5,7 @@ This document consolidates everything learned while deploying, debugging, and me
 ## Bottom line (as of 2026-08)
 
 - **Use the prebuilt container** `llama.cpp-sycl-b70:server`. Do **not** build llama.cpp from source for B70 — the Intel driver "version triangle" (below) makes a self-built runtime fail to initialize.
-- **Recommended config:** MTP3 + **128K** + **KV q8_0** + **Q8 MTP draft + Q8 mmproj** — full-suite pass on the upgrade stack (`:stable`). Legacy-safe 96k (BF16 draft) validated pre-upgrade.
+- **Recommended config:** **MTP4** + **128K** + **KV q8_0** + **Q8 MTP draft + Q8 mmproj** on the **v0.3.0 + ubuntu26.04-base** image — full-suite (T1–T5 + V1–V3) pass on the upgrade stack (`:stable`), 0 crashes. Legacy-safe 96k (BF16 draft) validated pre-upgrade.
 - **Q8 draft insight (upgrade stack):** at 128k/context the **BF16 MTP draft crashes** (`Failed to allocate physical memory` — its speculative buffer reserve exceeds the 32 GB card). Quantizing the draft to **Q8_0** frees ~1.5 GB and restores 128k with no acceptance loss (0.567 vs 0.5670).
 - **MTP crash insight (upgrade stack):** the 128k/context crash is the **draft model's speculative buffer reserve** (`phys.emplace` → `Failed to allocate physical memory`), not the KV cache — fix it by **quantizing the draft to Q8_0** (frees ~1.5 GB, acceptance unchanged). Separately, **f16 KV** OOMs at MTP + large context — fix that with **q8_0 KV**.
 - **Card dropout:** caused by **PCIe ASPM** → add `pcie_aspm=off` and use the physical recovery sequence (below).
@@ -62,7 +62,7 @@ export ZES_ENABLE_SYSMAN=1
 
 ## 4. Final recommended launch flags
 
-**Recommended (MTP3 + 128k + q8_0, Q8 MTP draft + Q8 mmproj):**
+**Recommended (MTP4 + 128k + q8_0, Q8 MTP draft + Q8 mmproj; v0.3.0 + ubuntu26.04 base):**
 
 ```bash
 --ctx-size 131072 \
@@ -72,7 +72,7 @@ export ZES_ENABLE_SYSMAN=1
 --no-mmproj-offload --image-min-tokens 1024 \
 --spec-type draft-mtp \
 --spec-draft-model /models/mtp-Qwen3.8-27B-Q8_0.gguf \
---spec-draft-n-max 3 \
+--spec-draft-n-max 4 \
 --spec-draft-p-min 0.1 \
 --n-gpu-layers 999
 ```
@@ -136,9 +136,10 @@ Watch host memory peaks more than VRAM (host peaked 26 GB+ + swap).
 - [`docs/B70-TUNING.md`](./B70-TUNING.md) — hands-on flags and pitfalls.
 - [`benchmark/METHODOLOGY.md`](../benchmark/METHODOLOGY.md) — test methodology.
 - [`benchmark/configs/mtp4-128k.md`](../benchmark/configs/mtp4-128k.md) & [`benchmark/results/2026-08-21-mtp4-128k.md`](../benchmark/results/2026-08-21-mtp4-128k.md) — extreme 5/5 + vision.
-- [`benchmark/configs/mtp3-q8-128k.md`](../benchmark/configs/mtp3-q8-128k.md) & [`benchmark/results/2026-08-25-mtp3-q8-128k.md`](../benchmark/results/2026-08-25-mtp3-q8-128k.md) — **recommended / current production (Q8, upgrade stack).**
+- [`benchmark/configs/v030-u26-mtp4-q8.md`](../benchmark/configs/v030-u26-mtp4-q8.md) & [`benchmark/results/2026-08-25-v030-u26-mtp4-q8.md`](../benchmark/results/2026-08-25-v030-u26-mtp4-q8.md) — **recommended / current production (v0.3.0 + u26 base, MTP4, Q8, upgrade stack).**
+- [`benchmark/configs/mtp3-q8-128k.md`](../benchmark/configs/mtp3-q8-128k.md) & [`benchmark/results/2026-08-25-mtp3-q8-128k.md`](../benchmark/results/2026-08-25-mtp3-q8-128k.md) — prior Q8 production (MTP3, superseded by MTP4).
 - [`benchmark/results/2026-08-21-mtp3-96k.md`](../benchmark/results/2026-08-21-mtp3-96k.md) — legacy-safe 5/5 (pre-upgrade).
 - [`benchmark/incidents/2026-08-21-gpu-dropout.md`](../benchmark/incidents/2026-08-21-gpu-dropout.md) — dropout record.
 - [`examples/qwen27b-server.sh`](../examples/qwen27b-server.sh) — current recommended launch script.
 
-**In short:** prebuilt container + MTP3/128K + KV q8_0 + **Q8 MTP draft + Q8 mmproj** on the upgrade stack (`:stable`). Any new config (higher n-max, f16 KV, larger ctx, BF16 draft at 128k) must first be validated for memory and dropout risk.
+**In short:** prebuilt container + **MTP4/128K + KV q8_0 + Q8 MTP draft + Q8 mmproj** on the **v0.3.0 + ubuntu26.04** upgrade stack (`:stable`). MTP4 acceptance is on par with MTP3 (≈0.57) with longer accepted runs. Any new config (higher n-max, f16 KV, larger ctx, BF16 draft at 128k) must first be validated for memory and dropout risk.

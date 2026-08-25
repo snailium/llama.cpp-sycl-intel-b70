@@ -7,7 +7,7 @@ The official `ghcr.io/ggml-org/llama.cpp:* -intel` images often lag on oneAPI / 
 ## ✨ Highlights
 
 - **First backend that reliably completes a full agent suite on B70.** llama.cpp + SYCL is the only B70 backend verified to pass all five benchmark tasks (T1–T5) in a single run — vLLM-MTP crashes on long agent chains.
-- **Recommended config verified:** MTP3 + 128k + q8_0 KV, **Q8 MTP draft + Q8 mmproj** ≈ **24–28 t/s** decode (~8% over no-draft), draft acceptance 0.57. Full suite passes on the upgrade stack (`:stable`).
+- **Recommended config verified:** **MTP4 + 128k + q8_0 KV, Q8 MTP draft + Q8 mmproj** on the **v0.3.0 + ubuntu26.04-base** image ≈ **25–42 t/s** direct decode, draft acceptance 0.57 (on par with MTP3). Full suite (T1–T5 + V1–V3) passes on the upgrade stack (`:stable`), 0 crashes.
 
 > **Q8 (not BF16) MTP draft is required on the upgrade stack at 128k** — the BF16 draft's speculative buffer reserve crashes the 32 GB card; Q8 frees ~1.5 GB with no acceptance loss.
 - **q8_0 KV is the stability lifeline** — the fix that makes MTP + large context fit in 32 GB without host-RAM OOM.
@@ -35,7 +35,7 @@ docker build \
   --target server \
   -t llama.cpp-sycl-b70:server \
   -f .devops/intel.Dockerfile \
-  --build-arg ONEAPI_VERSION=2026.1.2-devel-ubuntu24.04 \
+  --build-arg ONEAPI_VERSION=2026.1.2-devel-ubuntu26.04 \
   --build-arg GGML_SYCL_F16=ON \
   --build-arg GGML_SYCL_DEVICE_ARCH=bmg-g31 \
   .
@@ -84,7 +84,8 @@ A `docker-compose.yml` and a ready-made launcher for the Qwen3.8-27B MTP stack a
 
 | Config | Context | KV | MTP draft | When |
 |--------|---------|----|-----------|------|
-| **MTP3 + Q8/128k** (recommended) | 128k | **q8_0** | **Q8_0 MTP, n=3** | Default / production on the upgrade stack |
+| **MTP4 + Q8/128k** (recommended) | 128k | **q8_0** | **Q8_0 MTP, n=4** | Default / production (v0.3.0 + u26 base, upgrade stack) |
+| MTP3 + Q8/128k (v0.2.0) | 128k | **q8_0** | Q8_0 MTP, n=3 | Prior production (superseded by MTP4) |
 | MTP3 + 96k (legacy) | 96k | **q8_0** | BF16 MTP, n=3 | Pre-upgrade safe config |
 | MTP4 + 128k (max, old stack) | 128k | **q8_0** | BF16 MTP, n=4 | When the full 128k window was required pre-upgrade |
 | no-draft + 128k | 128k | f16 | none | The stable agent "workhorse" when speculation isn't worth it |
@@ -112,7 +113,7 @@ Full details and memory footprints in [`benchmark/configs/`](./benchmark/configs
 │   ├── results/                ← one file per dated test run
 │   └── incidents/              ← stability / dropout incident logs
 ├── examples/
-│   └── qwen27b-server.sh       ← recommended launcher (Q8 MTP + Q8 mmproj, MTP3/128k)
+│   └── qwen27b-server.sh       ← recommended launcher (Q8 MTP + Q8 mmproj, MTP4/128k)
 ├── scripts/
 │   └── build-b70-image.sh      ← convenience build script
 ├── .devops/intel.Dockerfile    ← the build pipeline (all version pins)
@@ -137,7 +138,7 @@ We explicitly do **not** set `GGML_SYCL_DISABLE_OPT`.
 `benchmark/` holds the full test methodology and all measured runs. **Start with [`benchmark/METHODOLOGY.md`](./benchmark/METHODOLOGY.md)** for the 5-task suite and metric conventions, then browse:
 
 - **[configs/](./benchmark/configs/)** — reproducible server configurations.
-- **[results/](./benchmark/results/)** — dated run reports (the **recommended/current** result is `2026-08-25-mtp3-q8-128k.md`; the legacy 5/5 pre-upgrade is `2026-08-21-mtp3-96k.md`).
+- **[results/](./benchmark/results/)** — dated run reports (the **recommended/current** result is `2026-08-25-v030-u26-mtp4-q8.md`; the Q8 tagging-gate is `2026-08-25-mtp3-q8-128k.md`).
 - **[incidents/](./benchmark/incidents/)** — the B70 PCIe-dropout incident log.
 
 > **Testing methodology matters.** Always verify cards with a real `/v1/chat/completions` → `finish_reason=stop`, keep thinking **off** for artifact tasks, use q8_0 KV for MTP+large context, and never trust llama.cpp's batched `eval time` figures as the real throughput (see methodology).

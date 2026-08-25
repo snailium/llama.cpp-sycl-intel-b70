@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Recommended launch for Qwen3.8-27B (Q4_K_M) + MTP on single Arc Pro B70 (SYCL)
-# Production: Q8_0 MTP draft + Q8_0 mmproj, MTP3 (n-max 3, p-min 0.1), 128k, q8_0 KV.
-# Based on benchmark results 2026-08-25 (Q8 MTP + 128k + q8_0 KV)
+# Production (v0.3.0 + ubuntu26.04 base): Q8_0 MTP draft + Q8_0 mmproj,
+# MTP4 (n-max 4, p-min 0.1), 128k, q8_0 KV (incl. draft KV), thinking on.
+# Based on benchmark results 2026-08-25 (v0.3.0-u26 MTP4/Q8/128k).
 
 set -euo pipefail
 
@@ -19,7 +20,7 @@ exec llama-server \
   --mmproj "$MMProj" \
   --spec-draft-model "$DRAFT" \
   --spec-type draft-mtp \
-  --spec-draft-n-max 3 \
+  --spec-draft-n-max 4 \
   --spec-draft-p-min 0.1 \
   --spec-draft-type-k q8_0 \
   --spec-draft-type-v q8_0 \

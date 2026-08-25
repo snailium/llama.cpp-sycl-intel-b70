@@ -53,7 +53,7 @@ export ZES_ENABLE_SYSMAN=1
 
 ## 5. Recommended server flags for 27B-class models
 
-**Recommended (MTP3 + 128k + q8_0, Q8 MTP draft + Q8 mmproj):**
+**Recommended (MTP4 + 128k + q8_0, Q8 MTP draft + Q8 mmproj; v0.3.0 + ubuntu26.04 base):**
 
 ```bash
 ./llama-server \
@@ -66,7 +66,7 @@ export ZES_ENABLE_SYSMAN=1
   --flash-attn on \
   --spec-type draft-mtp \
   --spec-draft-model /models/mtp-Qwen3.8-27B-Q8_0.gguf \
-  --spec-draft-n-max 3 \
+  --spec-draft-n-max 4 \
   --spec-draft-p-min 0.1 \
   --port 8080 --host 0.0.0.0
 ```
