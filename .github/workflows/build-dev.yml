@@ -14,9 +14,13 @@ on:
 
 jobs:
   check-and-build-dev:
-    # Only run on dev branch (schedule or manual)
+    # Run on scheduled weekly builds (fires on the default branch) or manual
+    # dispatch on the dev branch. Without the schedule clause the cron fired on
+    # main with event_name=schedule and ref_name=main -> condition was never
+    # true -> the dev job was silently skipped every Saturday.
     if: |
       github.ref_name == 'dev' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
@@ -76,7 +80,7 @@ jobs:
           IGREL=$(curl -s "https://api.github.com/repos/intel/intel-graphics-compiler/releases/tags/$IGC")
           IGCF=$(echo "$IGREL" | jq -r '.assets[] | select((.name|contains("igc-core-")) and (.name|endswith(".deb")) and ((.name|contains("devel"))|not)) | .name' | head -1 | sed -E 's/.*igc-core-([0-9_+.]+)_amd64.*/\1/')
           LZREL=$(curl -s "https://api.github.com/repos/oneapi-src/level-zero/releases/tags/$L0")
-          LZU=$(echo "$LZREL" | jq -r '.assets[] | select((.name|endswith("_amd64.deb")) and (.name|test("u[0-9.]"))) | .name' | head -1 | sed -E 's/.*(u[0-9.]+)_amd64.deb.*/\1/')
+          LZU=$(echo "$LZREL" | jq -r '.assets[].name' | grep -oE 'u24\.[0-9]+' | head -1)
           [ -z "$LZU" ] && LZU="u24.04"
           echo "latest_compute=$CR" >> $GITHUB_OUTPUT
           echo "latest_compute_full=$CRF" >> $GITHUB_OUTPUT

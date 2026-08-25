@@ -71,7 +71,7 @@ jobs:
 
           # level-zero ubuntu suffix from assets
           LZREL=$(curl -s "https://api.github.com/repos/oneapi-src/level-zero/releases/tags/$L0")
-          LZU=$(echo "$LZREL" | jq -r '.assets[] | select((.name|endswith("_amd64.deb")) and (.name|test("u[0-9.]"))) | .name' | head -1 | sed -E 's/.*(u[0-9.]+)_amd64.deb.*/\1/')
+          LZU=$(echo "$LZREL" | jq -r '.assets[].name' | grep -oE 'u24\.[0-9]+' | head -1)
           [ -z "$LZU" ] && LZU="u24.04"
 
           echo "latest_compute=$CR" >> $GITHUB_OUTPUT
