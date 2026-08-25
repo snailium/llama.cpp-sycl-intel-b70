@@ -203,7 +203,7 @@ jobs:
             diff += `**Build**: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n`;
             diff += `### Next steps (on your B70)\n`;
             diff += `1. Pull: \`docker pull ${full}\`\n`;
-            diff += `2. Test thoroughly (especially MTP + 128k + q8_0)\n`;
+            diff += `2. Test thoroughly (especially F16 KV + 96k + Q4-MTP3/XMX)\\n`;
             diff += `3. If good, promote to a clean release tag (e.g. server-c${cr}-${v}).\n\n`;
             diff += `Reason: ${{ steps.decide.outputs.build_reason }}`;
 

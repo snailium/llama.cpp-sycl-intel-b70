@@ -2,7 +2,7 @@
 
 **Focus:** an up-to-date llama.cpp + SYCL Docker image for the Intel Arc Pro B70 (and other Battlemage B-series).
 
-> **Recommended path:** prebuilt `llama.cpp-sycl-b70:server` container (`:stable`) + **MTP4/128k + q8_0 KV + Q8 MTP draft + Q8 mmproj**, on the **v0.3.0 + ubuntu26.04-base** image. Full suite (T1–T5 + V1–V3) verified on the upgrade stack (compute-runtime 26.31), 0 crashes. See `benchmark/` for the full evidence.
+> **Recommended path:** prebuilt `llama.cpp-sycl-b70:server` container (`:stable`, oneDNN/XMX build) + **MTP3/96k + F16 KV + Q4_0 MTP draft + Q8 mmproj**, `GGML_SYCL_FA_ONEDNN=1`. Full suite (T1–T5 + V1–V3) verified on the upgrade stack (compute-runtime 26.31), 0 crashes: prefill ≈392 t/s, decode ≈26.2 t/s, draft acc 0.573. See `benchmark/` for evidence.
 
 ## Current default pins in `.devops/intel.Dockerfile`
 
@@ -26,7 +26,7 @@ All major features remain enabled: Flash Attention, reorder kernels, MTP / specu
 ## Verified working on
 
 - Single B70, Qwen3.8-27B (Q4_K_M) + MTP draft + mmproj:
-  - **MTP4 + 128k + q8_0 KV, Q8 MTP draft + Q8 mmproj (v0.3.0 + u26 base) — full suite pass** (recommended, upgrade stack).
+  - **MTP3 + 96k + F16 KV, Q4_0 MTP draft + Q8 mmproj (v0.3.0 + oneDNN/XMX) — full suite pass** (recommended, upgrade stack, XMX prefill 392).
   - **MTP3 + 128k + q8_0 KV, Q8 MTP draft + Q8 mmproj (v0.2.0) — full suite pass** (prior production, superseded by MTP4).
   - **MTP3 + 96k + q8_0 KV — 5/5 text tasks** (legacy-safe, pre-upgrade).
   - **MTP4 + 128k + q8_0 KV — 5/5 text + 3 vision** (max context, old stack).

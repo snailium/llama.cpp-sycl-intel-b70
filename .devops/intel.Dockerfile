@@ -59,7 +59,7 @@ ARG GGML_SYCL_DEVICE_ARCH=bmg-g31   # Critical for Battlemage AOT kernels, avoid
 # will fail with "Incompatible interface in IGC: IGC_OCL_DEVC" if the only IGC present
 # is the older one bundled in the oneAPI base image.
 RUN apt-get update && \
-    apt-get install -y git libssl-dev wget ca-certificates && \
+    apt-get install -y git libssl-dev wget ca-certificates intel-oneapi-dnnl-devel && \
     cd /tmp && \
     (wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze1_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero.deb \
       || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero.deb) && \
@@ -104,6 +104,8 @@ RUN if [ "${GGML_SYCL_F16}" = "ON" ]; then \
       -DGGML_CPU_ALL_VARIANTS=ON \
       -DLLAMA_BUILD_TESTS=OFF \
       -DGGML_SYCL_DEVICE_ARCH=${GGML_SYCL_DEVICE_ARCH} \
+      -DGGML_SYCL_DNN=ON \
+      -DDNNL_ROOT=/opt/intel/oneapi/dnnl/latest \
       ${OPT_SYCL_F16} && \
     cmake --build build --config Release -j$(nproc)
 
@@ -165,7 +167,9 @@ RUN apt-get update && mkdir /tmp/neo/ && cd /tmp/neo/ \
   && ldconfig
 
 RUN apt-get update \
-    && apt-get install -y libgomp1 curl ffmpeg \
+    && apt-get install -y libgomp1 curl ffmpeg intel-oneapi-dnnl \
+    && echo '/opt/intel/oneapi/dnnl/latest/lib' > /etc/ld.so.conf.d/onednn.conf \
+    && ldconfig \
     && apt autoremove -y \
     && apt clean -y \
     && rm -rf /tmp/* /var/tmp/* \

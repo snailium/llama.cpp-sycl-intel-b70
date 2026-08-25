@@ -17,7 +17,7 @@ benchmark/
 
 ## Recommended configuration
 
-The current recommended default is **MTP4 + 128k + q8_0 KV with a Q8_0 MTP draft + Q8_0 mmproj**, on the **v0.3.0 + ubuntu26.04-base** image ([config](./configs/v030-u26-mtp4-q8.md)) — full 128k, stable on the upgrade stack (compute-runtime 26.31), MTP4 acceptance on par with MTP3 (≈0.57) with longer accepted runs. The `examples/qwen27b-server.sh` launcher matches this config.
+The current recommended default is **F16 KV + 96k + Q4_0 MTP draft, MTP3/0.1 + Q8 mmproj**, on the **v0.3.0 + oneDNN/XMX** image ([config](./configs/v030-f16-96k-dnn-mtp3-q4.md)) — XMX prefill ≈392 t/s, decode ≈26.2 t/s, draft acc 0.573, +1.5GB VRAM headroom. The `examples/qwen27b-server.sh` launcher matches this config.
 
 > The **Q8 (not BF16) MTP draft is required on the upgrade stack at 128k** — the BF16 draft's speculative buffer reserve crashes the 32 GB card (`Failed to allocate physical memory`). Quantizing to Q8 frees ~1.5 GB and enables 128k with no acceptance loss.
 
@@ -29,7 +29,7 @@ Two rules drive every recommendation:
 
 | Config | Draft | Context | KV | Role |
 |--------|-------|---------|----|------|
-| [v030-u26-mtp4-q8](./configs/v030-u26-mtp4-q8.md) | Q8_0 MTP n=4 | 128k | q8_0 | **Recommended** — current production (v0.3.0 + u26 base) |
+| [v030-u26-mtp4-q8](./configs/v030-u26-mtp4-q8.md) | Q8_0 MTP n=4 | 128k | q8_0 | Prior production (full 128k; superseded by DNN/XMX) |
 | [mtp3-q8-128k](./configs/mtp3-q8-128k.md) | Q8_0 MTP n=3 | 128k | q8_0 | Prior production (superseded by MTP4) |
 | [draft2b-128k](./configs/draft2b-128k.md) | 2B (disproven) | 128k | q8_0 | Speculative-vs-not baseline |
 | [nodraft-vision-128k](./configs/nodraft-vision-128k.md) | none | 128k | f16 | Stable text + vision workhorse |
