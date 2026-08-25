@@ -21,6 +21,8 @@ exec llama-server \
   --spec-type draft-mtp \
   --spec-draft-n-max 3 \
   --spec-draft-p-min 0.1 \
+  --spec-draft-type-k q8_0 \
+  --spec-draft-type-v q8_0 \
   --n-gpu-layers 999 \
   --ctx-size "$CTX" \
   --cache-type-k q8_0 \
