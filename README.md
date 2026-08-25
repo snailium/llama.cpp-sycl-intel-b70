@@ -7,7 +7,9 @@ The official `ghcr.io/ggml-org/llama.cpp:* -intel` images often lag on oneAPI / 
 ## ✨ Highlights
 
 - **First backend that reliably completes a full agent suite on B70.** llama.cpp + SYCL is the only B70 backend verified to pass all five benchmark tasks (T1–T5) in a single run — vLLM-MTP crashes on long agent chains.
-- **Recommended config verified:** MTP3 + 96k + q8_0 KV ≈ **33–35 t/s** decode, TTFT ≈ **0.88 s**, draft acceptance 0.57–0.85.
+- **Recommended config verified:** MTP3 + 128k + q8_0 KV, **Q8 MTP draft + Q8 mmproj** ≈ **24–28 t/s** decode (~8% over no-draft), draft acceptance 0.57. Full suite passes on the upgrade stack (`:stable`).
+
+> **Q8 (not BF16) MTP draft is required on the upgrade stack at 128k** — the BF16 draft's speculative buffer reserve crashes the 32 GB card; Q8 frees ~1.5 GB with no acceptance loss.
 - **q8_0 KV is the stability lifeline** — the fix that makes MTP + large context fit in 32 GB without host-RAM OOM.
 - **Why it's slower than vLLM, in one line:** the llama.cpp SYCL backend does not yet use B70's XMX matrix units (source-confirmed). See [`docs/B70-SYCL-KNOWLEDGE.md`](./docs/B70-SYCL-KNOWLEDGE.md).
 
@@ -82,8 +84,9 @@ A `docker-compose.yml` and a ready-made launcher for the Qwen3.8-27B MTP stack a
 
 | Config | Context | KV | MTP draft | When |
 |--------|---------|----|-----------|------|
-| **MTP3 + 96k** (recommended) | 96k | **q8_0** | BF16 MTP, n=3 | Best stability + latency for everyday / agent use |
-| MTP4 + 128k (max) | 128k | **q8_0** | BF16 MTP, n=4 | When the full 128k context window is required |
+| **MTP3 + Q8/128k** (recommended) | 128k | **q8_0** | **Q8_0 MTP, n=3** | Default / production on the upgrade stack |
+| MTP3 + 96k (legacy) | 96k | **q8_0** | BF16 MTP, n=3 | Pre-upgrade safe config |
+| MTP4 + 128k (max, old stack) | 128k | **q8_0** | BF16 MTP, n=4 | When the full 128k window was required pre-upgrade |
 | no-draft + 128k | 128k | f16 | none | The stable agent "workhorse" when speculation isn't worth it |
 
 Full details and memory footprints in [`benchmark/configs/`](./benchmark/configs/). Also:
@@ -91,7 +94,7 @@ Full details and memory footprints in [`benchmark/configs/`](./benchmark/configs
 - `--n-gpu-layers 999` (offload everything).
 - `--flash-attn on` (SYCL backend supports it).
 - **q8_0 KV** is required for MTP + 96k–128k (f16 KV + MTP + large ctx OOMs). f16 KV is fine for short contexts.
-- **Use a high-quality MTP draft** (BF16) — a low-acceptance 2B draft is a net slowdown.
+- **Use a high-quality MTP draft (Q8_0 on the upgrade stack; BF16 on the old stack)** — a low-acceptance 2B draft is a net slowdown.
 
 ## Project structure
 
@@ -109,7 +112,7 @@ Full details and memory footprints in [`benchmark/configs/`](./benchmark/configs
 │   ├── results/                ← one file per dated test run
 │   └── incidents/              ← stability / dropout incident logs
 ├── examples/
-│   └── qwen27b-server.sh       ← recommended MTP4/128k launcher
+│   └── qwen27b-server.sh       ← recommended launcher (Q8 MTP + Q8 mmproj, MTP3/128k)
 ├── scripts/
 │   └── build-b70-image.sh      ← convenience build script
 ├── .devops/intel.Dockerfile    ← the build pipeline (all version pins)
@@ -134,7 +137,7 @@ We explicitly do **not** set `GGML_SYCL_DISABLE_OPT`.
 `benchmark/` holds the full test methodology and all measured runs. **Start with [`benchmark/METHODOLOGY.md`](./benchmark/METHODOLOGY.md)** for the 5-task suite and metric conventions, then browse:
 
 - **[configs/](./benchmark/configs/)** — reproducible server configurations.
-- **[results/](./benchmark/results/)** — dated run reports (the recommended 5/5 result is `2026-08-21-mtp3-96k.md`; the extreme 5/5 + vision is `2026-08-21-mtp4-128k.md`).
+- **[results/](./benchmark/results/)** — dated run reports (the **recommended/current** result is `2026-08-25-mtp3-q8-128k.md`; the legacy 5/5 pre-upgrade is `2026-08-21-mtp3-96k.md`).
 - **[incidents/](./benchmark/incidents/)** — the B70 PCIe-dropout incident log.
 
 > **Testing methodology matters.** Always verify cards with a real `/v1/chat/completions` → `finish_reason=stop`, keep thinking **off** for artifact tasks, use q8_0 KV for MTP+large context, and never trust llama.cpp's batched `eval time` figures as the real throughput (see methodology).

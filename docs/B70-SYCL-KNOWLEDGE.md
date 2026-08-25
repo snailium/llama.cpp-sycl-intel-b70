@@ -5,9 +5,9 @@ This document consolidates everything learned while deploying, debugging, and me
 ## Bottom line (as of 2026-08)
 
 - **Use the prebuilt container** `llama.cpp-sycl-b70:server`. Do **not** build llama.cpp from source for B70 — the Intel driver "version triangle" (below) makes a self-built runtime fail to initialize.
-- **Recommended config:** MTP3 + 96K + **KV q8_0** + BF16 MTP draft + mmproj — the first config to pass all five benchmark tasks.
-- **Extreme config (verified):** MTP4 + 128K + KV q8_0 also passes 5/5, but decode gain vs MTP3/96K is negligible (it buys *context*, not speed).
-- **MTP OOM insight:** on agent loads, "MTP OOM" is really a **KV-cache space** problem, not a draft-model problem — fix it with **q8_0 KV**.
+- **Recommended config:** MTP3 + **128K** + **KV q8_0** + **Q8 MTP draft + Q8 mmproj** — full-suite pass on the upgrade stack (`:stable`). Legacy-safe 96k (BF16 draft) validated pre-upgrade.
+- **Q8 draft insight (upgrade stack):** at 128k/context the **BF16 MTP draft crashes** (`Failed to allocate physical memory` — its speculative buffer reserve exceeds the 32 GB card). Quantizing the draft to **Q8_0** frees ~1.5 GB and restores 128k with no acceptance loss (0.567 vs 0.5670).
+- **MTP crash insight (upgrade stack):** the 128k/context crash is the **draft model's speculative buffer reserve** (`phys.emplace` → `Failed to allocate physical memory`), not the KV cache — fix it by **quantizing the draft to Q8_0** (frees ~1.5 GB, acceptance unchanged). Separately, **f16 KV** OOMs at MTP + large context — fix that with **q8_0 KV**.
 - **Card dropout:** caused by **PCIe ASPM** → add `pcie_aspm=off` and use the physical recovery sequence (below).
 - **llama.cpp is ~2–3× slower than vLLM** because the SYCL backend **does not actually use B70's XMX** (confirmed in source, see below).
 
@@ -24,10 +24,12 @@ docker run -d \
   -e ONEAPI_DEVICE_SELECTOR=level_zero:0 \
   -e SYCL_CACHE_PERSISTENT=0 \
   -e ZES_ENABLE_SYSMAN=1 \
-  --entrypoint /app/full/llama-server \
-  llama.cpp-sycl-b70:server \
+  --entrypoint /app/llama-server \
+  llama.cpp-sycl-b70:stable \
   -m /models/Qwen3.8-27B-Q4_K_M.gguf \
-  --mmproj /models/mmproj-Qwen3.8-27B-BF16.gguf \
+  --mmproj /models/mmproj-Qwen3.8-27B-Q8_0.gguf \
+  --spec-draft-model /models/mtp-Qwen3.8-27B-Q8_0.gguf \
+  --spec-type draft-mtp --spec-draft-n-max 3 --spec-draft-p-min 0.1 \
   ...other flags
 ```
 
@@ -60,22 +62,24 @@ export ZES_ENABLE_SYSMAN=1
 
 ## 4. Final recommended launch flags
 
-**Recommended (MTP3/96K + q8_0):**
+**Recommended (MTP3 + 128k + q8_0, Q8 MTP draft + Q8 mmproj):**
 
 ```bash
---ctx-size 98304 \
+--ctx-size 131072 \
 --cache-type-k q8_0 --cache-type-v q8_0 \
 --flash-attn on \
+--mmproj /models/mmproj-Qwen3.8-27B-Q8_0.gguf \
+--no-mmproj-offload --image-min-tokens 1024 \
 --spec-type draft-mtp \
---spec-draft-model /models/mtp-Qwen3.8-27B-BF16.gguf \
+--spec-draft-model /models/mtp-Qwen3.8-27B-Q8_0.gguf \
 --spec-draft-n-max 3 \
 --spec-draft-p-min 0.1 \
 --n-gpu-layers 999
 ```
 
-**Extreme (MTP4/128K + q8_0):** `--ctx-size 131072 --spec-draft-n-max 4` (same q8_0 KV).
+> **Q8 MTP draft is required on the upgrade stack (`:stable`, compute-runtime 26.31) at 128k/context.** The BF16 draft's speculative buffer reserve crashes the 32 GB card; Q8 frees ~1.5 GB and restores 128k with no acceptance loss (0.567 vs 0.5670). Legacy-safe 96k (BF16 draft) still works on the old stack — see `benchmark/configs/mtp3-96k.md`.
 
-**Model stack:** use all ggml-org quants (Q4_K_M main + BF16 mmproj + BF16 MTP draft). See `examples/qwen27b-server.sh`.
+**Model stack:** use all ggml-org quants (Q4_K_M main + Q8_0 mmproj + Q8_0 MTP draft). See `examples/qwen27b-server.sh`.
 
 ## 5. MTP tuning notes
 
@@ -132,8 +136,9 @@ Watch host memory peaks more than VRAM (host peaked 26 GB+ + swap).
 - [`docs/B70-TUNING.md`](./B70-TUNING.md) — hands-on flags and pitfalls.
 - [`benchmark/METHODOLOGY.md`](../benchmark/METHODOLOGY.md) — test methodology.
 - [`benchmark/configs/mtp4-128k.md`](../benchmark/configs/mtp4-128k.md) & [`benchmark/results/2026-08-21-mtp4-128k.md`](../benchmark/results/2026-08-21-mtp4-128k.md) — extreme 5/5 + vision.
-- [`benchmark/results/2026-08-21-mtp3-96k.md`](../benchmark/results/2026-08-21-mtp3-96k.md) — recommended 5/5.
+- [`benchmark/configs/mtp3-q8-128k.md`](../benchmark/configs/mtp3-q8-128k.md) & [`benchmark/results/2026-08-25-mtp3-q8-128k.md`](../benchmark/results/2026-08-25-mtp3-q8-128k.md) — **recommended / current production (Q8, upgrade stack).**
+- [`benchmark/results/2026-08-21-mtp3-96k.md`](../benchmark/results/2026-08-21-mtp3-96k.md) — legacy-safe 5/5 (pre-upgrade).
 - [`benchmark/incidents/2026-08-21-gpu-dropout.md`](../benchmark/incidents/2026-08-21-gpu-dropout.md) — dropout record.
 - [`examples/qwen27b-server.sh`](../examples/qwen27b-server.sh) — current recommended launch script.
 
-**In short:** prebuilt container + MTP3/96K + KV q8_0 + all-ggml-org stack. Any new config (higher n-max, f16 KV, larger ctx) must first be validated for memory and dropout risk.
+**In short:** prebuilt container + MTP3/128K + KV q8_0 + **Q8 MTP draft + Q8 mmproj** on the upgrade stack (`:stable`). Any new config (higher n-max, f16 KV, larger ctx, BF16 draft at 128k) must first be validated for memory and dropout risk.

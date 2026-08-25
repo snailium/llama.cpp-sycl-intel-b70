@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Recommended launch for Qwen3.8-27B (Q4_K_M) + MTP on single Arc Pro B70 (SYCL)
-# Based on final benchmark results (MTP4 + 128k + q8_0 KV)
+# Production: Q8_0 MTP draft + Q8_0 mmproj, MTP3 (n-max 3, p-min 0.1), 128k, q8_0 KV.
+# Based on benchmark results 2026-08-25 (Q8 MTP + 128k + q8_0 KV)
 
 set -euo pipefail
 
 MODEL=${MODEL:-/models/Qwen3.8-27B-Q4_K_M.gguf}
-MMProj=${MMProj:-/models/mmproj-Qwen3.8-27B-BF16.gguf}
-DRAFT=${DRAFT:-/models/mtp-Qwen3.8-27B-BF16.gguf}
+MMProj=${MMProj:-/models/mmproj-Qwen3.8-27B-Q8_0.gguf}
+DRAFT=${DRAFT:-/models/mtp-Qwen3.8-27B-Q8_0.gguf}
 CTX=${CTX:-131072}
 
 export ONEAPI_DEVICE_SELECTOR=level_zero:0
@@ -18,7 +19,7 @@ exec llama-server \
   --mmproj "$MMProj" \
   --spec-draft-model "$DRAFT" \
   --spec-type draft-mtp \
-  --spec-draft-n-max 4 \
+  --spec-draft-n-max 3 \
   --spec-draft-p-min 0.1 \
   --n-gpu-layers 999 \
   --ctx-size "$CTX" \

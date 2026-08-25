@@ -2,7 +2,7 @@
 
 **Focus:** an up-to-date llama.cpp + SYCL Docker image for the Intel Arc Pro B70 (and other Battlemage B-series).
 
-> **Recommended path:** prebuilt `llama.cpp-sycl-b70:server` container + MTP3/96K + **q8_0 KV** + all-ggml-org stack. Verified **5/5** on the benchmark suite. See `benchmark/` for the full evidence.
+> **Recommended path:** prebuilt `llama.cpp-sycl-b70:server` container (`:stable`) + **MTP3/128k + q8_0 KV + Q8 MTP draft + Q8 mmproj**. Full suite verified on the upgrade stack (compute-runtime 26.31). See `benchmark/` for the full evidence.
 
 ## Current default pins in `.devops/intel.Dockerfile`
 
@@ -25,9 +25,10 @@ All major features remain enabled: Flash Attention, reorder kernels, MTP / specu
 
 ## Verified working on
 
-- Single B70, Qwen3.8-27B (Q4_K_M) + BF16 MTP draft + mmproj:
-  - **MTP3 + 96k + q8_0 KV — 5/5 text tasks** (recommended).
-  - **MTP4 + 128k + q8_0 KV — 5/5 text + 3 vision** (max context).
+- Single B70, Qwen3.8-27B (Q4_K_M) + MTP draft + mmproj:
+  - **MTP3 + 128k + q8_0 KV, Q8 MTP draft + Q8 mmproj — full suite pass** (recommended, upgrade stack).
+  - **MTP3 + 96k + q8_0 KV — 5/5 text tasks** (legacy-safe, pre-upgrade).
+  - **MTP4 + 128k + q8_0 KV — 5/5 text + 3 vision** (max context, old stack).
   - no-draft + 128k + f16 KV — stable agent workhorse.
 - Flash Attention enabled; speculative/MTP drafts supported by the binary.
 - `pcie_aspm=off` host flag for PCIe stability (B450).
@@ -44,4 +45,4 @@ All major features remain enabled: Flash Attention, reorder kernels, MTP / specu
 - Add benchmark data in issues/PRs (use `benchmark/METHODOLOGY.md` and add reports under `benchmark/results/`).
 - Improve docs for multi-GPU or specific model families.
 
-Last updated: 2026-08-24.
+Last updated: 2026-08-25.

@@ -17,7 +17,9 @@ benchmark/
 
 ## Recommended configuration
 
-The current recommended default is **MTP3 + 96k + q8_0 KV** ([config](./configs/mtp3-96k.md)) — the first config to pass all five tasks with the best stability/latency trade-off. Use **MTP4 + 128k + q8_0** ([config](./configs/mtp4-128k.md)) when the full 128k window is required. The `examples/qwen27b-server.sh` launcher matches the MTP4/128k config.
+The current recommended default is **MTP3 + 128k + q8_0 KV with a Q8_0 MTP draft + Q8_0 mmproj** ([config](./configs/mtp3-q8-128k.md)) — full 128k capability, stable on the upgrade stack (compute-runtime 26.31), with acceptance matching the old BF16 draft. The `examples/qwen27b-server.sh` launcher matches this config.
+
+> The **Q8 (not BF16) MTP draft is required on the upgrade stack at 128k** — the BF16 draft's speculative buffer reserve crashes the 32 GB card (`Failed to allocate physical memory`). Quantizing to Q8 frees ~1.5 GB and enables 128k with no acceptance loss.
 
 Two rules drive every recommendation:
 1. **q8_0 KV** is the lifeline — without it, MTP + large context OOMs (f16 KV is short-context-only).
@@ -27,10 +29,11 @@ Two rules drive every recommendation:
 
 | Config | Draft | Context | KV | Role |
 |--------|-------|---------|----|------|
+| [mtp3-q8-128k](./configs/mtp3-q8-128k.md) | Q8_0 MTP n=3 | 128k | q8_0 | **Recommended** — current production |
 | [draft2b-128k](./configs/draft2b-128k.md) | 2B (disproven) | 128k | q8_0 | Speculative-vs-not baseline |
 | [nodraft-vision-128k](./configs/nodraft-vision-128k.md) | none | 128k | f16 | Stable text + vision workhorse |
-| [mtp3-96k](./configs/mtp3-96k.md) | BF16 MTP n=3 | 96k | q8_0 | **Recommended** |
-| [mtp4-128k](./configs/mtp4-128k.md) | BF16 MTP n=4 | 128k | q8_0 | Max context / max MTP |
+| [mtp3-96k](./configs/mtp3-96k.md) | BF16 MTP n=3 | 96k | q8_0 | Legacy-safe 96k (pre-upgrade) |
+| [mtp4-128k](./configs/mtp4-128k.md) | BF16 MTP n=4 | 128k | q8_0 | Max context / max MTP (old stack) |
 
 ## Results
 
@@ -38,8 +41,9 @@ Two rules drive every recommendation:
 |------|--------|--------|---------|
 | 2026-08-20 | [draft2b-128k](./results/2026-08-20-draft2b-128k.md) | draft2b-128k | 3/3 agent tasks; proves q8_0 fix + 2B-draft drag |
 | 2026-08-20 | [nodraft-vision-128k](./results/2026-08-20-nodraft-vision-128k.md) | nodraft-vision-128k | 3/3 agent tasks; dropping 2B draft speeds up T3/T4 |
-| 2026-08-21 | [mtp3-96k](./results/2026-08-21-mtp3-96k.md) | mtp3-96k | **5/5**; recommended default |
-| 2026-08-21 | [mtp4-128k](./results/2026-08-21-mtp4-128k.md) | mtp4-128k | **5/5 + 3 vision**; extreme vertex config |
+| 2026-08-21 | [mtp3-96k](./results/2026-08-21-mtp3-96k.md) | mtp3-96k | **5/5**; legacy-safe pre-upgrade |
+| 2026-08-21 | [mtp4-128k](./results/2026-08-21-mtp4-128k.md) | mtp4-128k | **5/5 + 3 vision**; extreme vertex config (old stack) |
+| 2026-08-25 | [mtp3-q8-128k](./results/2026-08-25-mtp3-q8-128k.md) | mtp3-q8-128k | **Full suite pass** + T5 310 cm on upgrade stack; gate for `:stable` |
 
 ## Incidents
 
@@ -49,7 +53,7 @@ Two rules drive every recommendation:
 
 ## Headline numbers (for quick reference)
 
-- **Recommended decode:** ~33–35 t/s single-stream (MTP3/96K); **TTFT ≈ 0.88s** (MTP4/128K).
+- **Recommended decode:** ≈ 24–28 t/s single-stream (MTP3/Q8/128K), ≈8% over the ≈23.2 t/s no-draft baseline; **TTFT ≈ 0.88 s** (MTP4/128K, old stack).
 - **Long-chain draft acceptance:** 0.50–0.85 (BF16 MTP) vs 0.31–0.50 (2B draft).
 - **Full agent suite:** llama.cpp is the **only B70 backend that completes all tasks** — vLLM-MTP crashes on T5.
 - **Vision:** quality on par with a dual-3060 27B, but much slower (visual prefill bottleneck).

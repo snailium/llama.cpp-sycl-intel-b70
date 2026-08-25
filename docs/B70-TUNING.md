@@ -53,24 +53,25 @@ export ZES_ENABLE_SYSMAN=1
 
 ## 5. Recommended server flags for 27B-class models
 
-**Recommended (MTP3 + 96k + q8_0):**
+**Recommended (MTP3 + 128k + q8_0, Q8 MTP draft + Q8 mmproj):**
 
 ```bash
 ./llama-server \
   -m /models/Qwen3.8-27B-Q4_K_M.gguf \
-  --mmproj /models/mmproj-Qwen3.8-27B-BF16.gguf \
+  --mmproj /models/mmproj-Qwen3.8-27B-Q8_0.gguf \
+  --no-mmproj-offload --image-min-tokens 1024 \
   --n-gpu-layers 999 \
-  --ctx-size 98304 \
+  --ctx-size 131072 \
   --cache-type-k q8_0 --cache-type-v q8_0 \
   --flash-attn on \
   --spec-type draft-mtp \
-  --spec-draft-model /models/mtp-Qwen3.8-27B-BF16.gguf \
+  --spec-draft-model /models/mtp-Qwen3.8-27B-Q8_0.gguf \
   --spec-draft-n-max 3 \
   --spec-draft-p-min 0.1 \
   --port 8080 --host 0.0.0.0
 ```
 
-**Max context (MTP4 + 128k + q8_0):** replace `--ctx-size 98304` with `--ctx-size 131072` and `--spec-draft-n-max 4`. Matches `examples/qwen27b-server.sh`.
+> **Q8 MTP draft is required on the upgrade stack (`:stable`) at 128k** — the BF16 draft's reserve crashes the card. Legacy-safe 96k (BF16 draft) validated on the old stack.
 
 **MTP / speculative decoding:** use a draft-model GGUF with `--spec-draft-model` (`-md`) + `--spec-type draft-mtp`. Nothing in this image disables the speculative paths.
 

@@ -6,10 +6,11 @@ Each file under this directory documents one **stable, reproducible server confi
 
 | Config | Draft | Context | KV cache | Purpose |
 |--------|-------|---------|----------|---------|
+| [mtp3-q8-128k](./mtp3-q8-128k.md) | Q8_0 MTP (n=3) | 128k | **q8_0** | **Recommended — current production** (upgrade stack, full 128k) |
 | [draft2b-128k](./draft2b-128k.md) | None (2B tested) | 128k | **f16** (q8_0 test) | Baseline / speculative-vs-not comparison |
 | [nodraft-vision-128k](./nodraft-vision-128k.md) | No draft | 128k | f16 | Stable text + vision, no speculation |
-| [mtp3-96k](./mtp3-96k.md) | BF16 MTP (n=3) | 96k | **q8_0** | **Recommended** — best stability + latency |
-| [mtp4-128k](./mtp4-128k.md) | BF16 MTP (n=4) | 128k | **q8_0** | Max context + full MTP |
+| [mtp3-96k](./mtp3-96k.md) | BF16 MTP (n=3) | 96k | **q8_0** | Legacy-safe 96k (pre-upgrade) |
+| [mtp4-128k](./mtp4-128k.md) | BF16 MTP (n=4) | 128k | **q8_0** | Max context + full MTP (old stack) |
 
 ## Template for a new config
 
