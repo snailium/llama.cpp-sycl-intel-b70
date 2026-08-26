@@ -10,12 +10,19 @@ ARG APP_REVISION=N/A
 
 # === Dynamic Intel stack versions (passed from CI via --build-arg) ===
 # Hoisted to top level so they are visible for FROM and every stage (build + base + server)
-ARG LEVEL_ZERO_VERSION=1.28.2
-ARG LEVEL_ZERO_UBUNTU_VERSION=u26.04
-ARG COMPUTE_RUNTIME_VERSION=26.18.38308.1
-ARG COMPUTE_RUNTIME_VERSION_FULL=26.18.38308.1-0
-ARG IGC_VERSION=v2.34.4
-ARG IGC_VERSION_FULL=2_2.34.4+21428
+# Defaults track the latest intel/compute-runtime release + its documented paired
+# IGC / level-zero versions. CI derives these from compute-runtime automatically
+# (see .github/workflows) — keep them in sync with compute-runtime's release notes.
+ARG LEVEL_ZERO_VERSION=1.32.0
+# level-zero community builds ship only u22.04/u24.04 assets (no u26.04) for
+# the current L0 version, so an ubuntu26.04 base pairs with the u24.04 L0 deb
+# by design. The workflows derive this suffix from the base image tag at build
+# time (LEVEL_ZERO_UBUNTU_VERSION mirrors the highest L0 asset available).
+ARG LEVEL_ZERO_UBUNTU_VERSION=u24.04
+ARG COMPUTE_RUNTIME_VERSION=26.31.39395.13
+ARG COMPUTE_RUNTIME_VERSION_FULL=26.31.39395.13-0
+ARG IGC_VERSION=v2.40.13
+ARG IGC_VERSION_FULL=2_2.40.13+22418
 ARG IGDGMM_VERSION=22.10.0
 ## Build Image (web UI)
 
@@ -48,17 +55,34 @@ ARG IGDGMM_VERSION
 ARG GGML_SYCL_F16=ON
 ARG GGML_SYCL_DEVICE_ARCH=bmg-g31   # Critical for Battlemage AOT kernels, avoids JIT SIGSEGV
 
-# Install tools needed for AOT (ocloc + level-zero) using versions from build-args
+# Install tools needed for AOT (ocloc + IGC + level-zero) using versions from build-args
+# NOTE: level-zero >= 1.29 renamed its .deb packages from level-zero/level-zero-devel
+#       to libze1/libze-dev. Try the new names first, fall back to the old names so
+#       both pin generations build.
+# Must install ocloc AND a matching IGC together: ocloc loads libigc at AOT time and
+# will fail with "Incompatible interface in IGC: IGC_OCL_DEVC" if the only IGC present
+# is the older one bundled in the oneAPI base image.
 RUN apt-get update && \
-    apt-get install -y git libssl-dev wget ca-certificates && \
+    apt-get install -y git libssl-dev wget ca-certificates intel-oneapi-dnnl-devel && \
     cd /tmp && \
-    wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero.deb && \
-    wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero-devel_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero-devel.deb && \
+    (wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze1_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero.deb \
+      || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero.deb) && \
+    (wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze-dev_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero-devel.deb \
+      || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero-devel_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O level-zero-devel.deb) && \
     apt-get -o Dpkg::Options::="--force-overwrite" install -y ./level-zero.deb ./level-zero-devel.deb && \
     rm -f /tmp/level-zero.deb /tmp/level-zero-devel.deb && \
-    wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.deb" -O /tmp/ocloc.deb && \
-    apt-get -o Dpkg::Options::="--force-overwrite" install -y /tmp/ocloc.deb && \
-    rm -f /tmp/ocloc.deb
+    wget -q "https://github.com/intel/intel-graphics-compiler/releases/download/${IGC_VERSION}/intel-igc-core-${IGC_VERSION_FULL}_amd64.deb" -O igc-core.deb && \
+    wget -q "https://github.com/intel/intel-graphics-compiler/releases/download/${IGC_VERSION}/intel-igc-opencl-${IGC_VERSION_FULL}_amd64.deb" -O igc-opencl.deb && \
+    (wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.deb" -O /tmp/ocloc.deb \
+      || wget -q "https://github.com/intel/compute-runtime/releases/download/${COMPUTE_RUNTIME_VERSION}/intel-ocloc_${COMPUTE_RUNTIME_VERSION}_amd64.deb" -O /tmp/ocloc.deb) && \
+    apt-get -o Dpkg::Options::="--force-overwrite" install -y ./igc-core.deb ./igc-opencl.deb /tmp/ocloc.deb && \
+    rm -f /tmp/ocloc.deb ./igc-core.deb ./igc-opencl.deb && \
+    # Remove the oneAPI base image's bundled *older* IGC (libigc so 2.36.3)
+    # from /usr/lib so ocloc loads the matching IGC we just installed
+    # (/usr/local/lib). Otherwise ocloc resolves the shadowing lib and fails
+    # every AOT compile with "Incompatible interface in IGC: IGC_OCL_DEVC".
+    rm -f /usr/lib/x86_64-linux-gnu/libigc.so.2* /usr/lib/x86_64-linux-gnu/libiga64.so.2* && \
+    ldconfig
 
 WORKDIR /app
 
@@ -72,12 +96,9 @@ COPY --from=web /app/tools/ui/dist/ tools/ui/dist/
 # Explicit device arch for B70/Battlemage pre-compilation (AOT)
 RUN if [ "${GGML_SYCL_F16}" = "ON" ]; then \
         echo "GGML_SYCL_F16 is set" \
-        && export OPT_SYCL_F16="-DGGML_SYCL_F16=ON" \
-        && export SYCL_PROGRAM_COMPILE_OPTIONS="-cl-fp32-correctly-rounded-divide-sqrt"; \
+        && export OPT_SYCL_F16="-DGGML_SYCL_F16=ON"; \
     fi && \
     echo "Building with dynamic libs + Battlemage AOT (bmg-g31)" && \
-    export PATH="/opt/intel/oneapi/compiler/2026.1/bin:/usr/bin:$PATH" && \
-    which ocloc || echo "ocloc not in PATH yet" && \
     cmake -S llama.cpp -B build \
       -DGGML_NATIVE=OFF \
       -DGGML_SYCL=ON \
@@ -87,12 +108,18 @@ RUN if [ "${GGML_SYCL_F16}" = "ON" ]; then \
       -DGGML_CPU_ALL_VARIANTS=ON \
       -DLLAMA_BUILD_TESTS=OFF \
       -DGGML_SYCL_DEVICE_ARCH=${GGML_SYCL_DEVICE_ARCH} \
+      -DGGML_SYCL_DNN=ON \
+      -DDNNL_ROOT=/opt/intel/oneapi/dnnl/latest \
       ${OPT_SYCL_F16} && \
     cmake --build build --config Release -j$(nproc)
 
 RUN mkdir -p /app/lib && \
     find build -name "*.so*" -exec cp -P {} /app/lib \;
 
+# Best-effort packaging of optional Python helper tools (conversion scripts,
+# gguf-py, requirements). llama.cpp's layout varies by version, so each copy
+# is intentionally tolerant of a missing source (|| true) — the server binary
+# itself is the required artifact, these are conveniences.
 RUN mkdir -p /app/full \
     && cp build/bin/* /app/full \
     && cp llama.cpp/*.py /app/full || true \
@@ -125,7 +152,11 @@ LABEL org.opencontainers.image.created=$BUILD_DATE \
       org.opencontainers.image.source=$IMAGE_SOURCE
 
 
-RUN mkdir /tmp/neo/ && cd /tmp/neo/ \
+# Install the driver stack. apt-get (not raw dpkg) tolerates packages the base
+# image already ships at the same version (e.g. libigdgmm12 22.10.0) and
+# resolves dependency order (libze1 before libze-intel-gpu1). Failures now
+# fail the build loudly instead of being swallowed by a bare `|| true`.
+RUN apt-get update && mkdir /tmp/neo/ && cd /tmp/neo/ \
   && wget https://github.com/intel/intel-graphics-compiler/releases/download/$IGC_VERSION/intel-igc-core-${IGC_VERSION_FULL}_amd64.deb \
   && wget https://github.com/intel/intel-graphics-compiler/releases/download/$IGC_VERSION/intel-igc-opencl-${IGC_VERSION_FULL}_amd64.deb \
   && wget https://github.com/intel/compute-runtime/releases/download/$COMPUTE_RUNTIME_VERSION/intel-ocloc-dbgsym_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.ddeb \
@@ -135,10 +166,14 @@ RUN mkdir /tmp/neo/ && cd /tmp/neo/ \
   && wget https://github.com/intel/compute-runtime/releases/download/$COMPUTE_RUNTIME_VERSION/libigdgmm12_${IGDGMM_VERSION}_amd64.deb \
   && wget https://github.com/intel/compute-runtime/releases/download/$COMPUTE_RUNTIME_VERSION/libze-intel-gpu1-dbgsym_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.ddeb \
   && wget https://github.com/intel/compute-runtime/releases/download/$COMPUTE_RUNTIME_VERSION/libze-intel-gpu1_${COMPUTE_RUNTIME_VERSION_FULL}_amd64.deb \
-  && dpkg --install *.deb || true
+  && apt-get -o Dpkg::Options::="--force-overwrite" --allow-downgrades install -y ./*.deb \
+  && rm -f /usr/lib/x86_64-linux-gnu/libigc.so.2* /usr/lib/x86_64-linux-gnu/libiga64.so.2* \
+  && ldconfig
 
 RUN apt-get update \
-    && apt-get install -y libgomp1 curl ffmpeg \
+    && apt-get install -y libgomp1 curl ffmpeg intel-oneapi-dnnl \
+    && echo '/opt/intel/oneapi/dnnl/latest/lib' > /etc/ld.so.conf.d/onednn.conf \
+    && ldconfig \
     && apt autoremove -y \
     && apt clean -y \
     && rm -rf /tmp/* /var/tmp/* \
@@ -177,7 +212,7 @@ ENTRYPOINT ["/app/tools.sh"]
 FROM base AS light
 
 COPY --from=build /app/lib/ /app
-COPY --from=build /app/full/llama /app/full/llama-cli /app/full/llama-completion /app
+COPY --from=build /app/full/llama /app/full/llama-cli /app/full/llama-completion /app/
 
 WORKDIR /app
 
@@ -189,7 +224,7 @@ FROM base AS server
 ENV LLAMA_ARG_HOST=0.0.0.0
 
 COPY --from=build /app/lib/ /app
-COPY --from=build /app/full/llama /app/full/llama-server /app
+COPY --from=build /app/full/llama /app/full/llama-server /app/
 
 WORKDIR /app
 
