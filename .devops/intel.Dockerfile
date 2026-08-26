@@ -14,6 +14,10 @@ ARG APP_REVISION=N/A
 # IGC / level-zero versions. CI derives these from compute-runtime automatically
 # (see .github/workflows) — keep them in sync with compute-runtime's release notes.
 ARG LEVEL_ZERO_VERSION=1.32.0
+# level-zero community builds ship only u22.04/u24.04 assets (no u26.04) for
+# the current L0 version, so an ubuntu26.04 base pairs with the u24.04 L0 deb
+# by design. The workflows derive this suffix from the base image tag at build
+# time (LEVEL_ZERO_UBUNTU_VERSION mirrors the highest L0 asset available).
 ARG LEVEL_ZERO_UBUNTU_VERSION=u24.04
 ARG COMPUTE_RUNTIME_VERSION=26.31.39395.13
 ARG COMPUTE_RUNTIME_VERSION_FULL=26.31.39395.13-0

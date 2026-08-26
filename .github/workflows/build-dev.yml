@@ -83,8 +83,17 @@ jobs:
           IGREL=$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/intel/intel-graphics-compiler/releases/tags/$IGC")
           IGCF=$(echo "$IGREL" | jq -r '.assets[] | select((.name|contains("igc-core-")) and (.name|endswith(".deb")) and ((.name|contains("devel"))|not)) | .name' | head -1 | sed -E 's/.*igc-core-([0-9_+.]+)_amd64.*/\1/')
           LZREL=$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/oneapi-src/level-zero/releases/tags/$L0")
-          LZU=$(echo "$LZREL" | jq -r '.assets[].name' | grep -oE 'u24\.[0-9]+' | head -1)
+          LZS=$(echo "$LZREL" | jq -r '.assets[].name' | grep -oE 'u[0-9]+\.[0-9]+' | sort -Vu)
+          # Derive the L0 ubuntu suffix from the base ONEAPI image tag (NOT a
+          # hardcoded u24). Prefer an exact match to the base distro; if that
+          # build isn't shipped, fall back to the highest suffix present so we
+          # never silently pick a different Ubuntu release.
+          OBASE=$(grep '^ARG ONEAPI_VERSION=' .devops/intel.Dockerfile | head -1 | cut -d= -f2 | grep -oE 'ubuntu[0-9]+\.[0-9]+' | head -1 | sed -E 's/ubuntu/u/')
+          [ -z "$OBASE" ] && OBASE="u24.04"
+          LZU=$(echo "$LZS" | grep -F "$OBASE" | head -1)
+          [ -z "$LZU" ] && LZU=$(echo "$LZS" | tail -1)
           [ -z "$LZU" ] && LZU="u24.04"
+          echo "  base distro $OBASE -> level-zero ubuntu suffix $LZU"
           echo "latest_compute=$CR" >> $GITHUB_OUTPUT
           echo "latest_compute_full=$CRF" >> $GITHUB_OUTPUT
           echo "latest_igc=$IGC" >> $GITHUB_OUTPUT

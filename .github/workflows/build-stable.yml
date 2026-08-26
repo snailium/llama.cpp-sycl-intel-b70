@@ -5,6 +5,12 @@ on:
     # Every 4 hours: check compute-runtime (and llama.cpp) for updates
     - cron: '0 */4 * * *'
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force a stable build even if this version combo already exists in GHCR'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   check-and-build-stable:
@@ -78,8 +84,17 @@ jobs:
 
           # level-zero ubuntu suffix from assets
           LZREL=$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/oneapi-src/level-zero/releases/tags/$L0")
-          LZU=$(echo "$LZREL" | jq -r '.assets[].name' | grep -oE 'u24\.[0-9]+' | head -1)
+          LZS=$(echo "$LZREL" | jq -r '.assets[].name' | grep -oE 'u[0-9]+\.[0-9]+' | sort -Vu)
+          # Derive the L0 ubuntu suffix from the base ONEAPI image tag (NOT a
+          # hardcoded u24). Prefer an exact match to the base distro; if that
+          # build isn't shipped, fall back to the highest suffix present so we
+          # never silently pick a different Ubuntu release.
+          OBASE=$(grep '^ARG ONEAPI_VERSION=' .devops/intel.Dockerfile | head -1 | cut -d= -f2 | grep -oE 'ubuntu[0-9]+\.[0-9]+' | head -1 | sed -E 's/ubuntu/u/')
+          [ -z "$OBASE" ] && OBASE="u24.04"
+          LZU=$(echo "$LZS" | grep -F "$OBASE" | head -1)
+          [ -z "$LZU" ] && LZU=$(echo "$LZS" | tail -1)
           [ -z "$LZU" ] && LZU="u24.04"
+          echo "  base distro $OBASE -> level-zero ubuntu suffix $LZU"
 
           echo "latest_compute=$CR" >> $GITHUB_OUTPUT
           echo "latest_compute_full=$CRF" >> $GITHUB_OUTPUT
@@ -111,6 +126,7 @@ jobs:
           PREFIX="server-c${{ steps.deps.outputs.latest_compute }}-${{ steps.llama.outputs.latest_v }}-"
           SHOULD_BUILD=false
           REASON=""
+          FORCE="${{ github.event.inputs.force || 'false' }}"
 
           TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:${REPO}:pull" | jq -r .token)
           TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" "https://ghcr.io/v2/${REPO}/tags/list" | jq -r '.tags[]? // empty' || true)
@@ -124,6 +140,11 @@ jobs:
             SHOULD_BUILD=true
             CR_CUR=$(grep '^ARG COMPUTE_RUNTIME_VERSION=' .devops/intel.Dockerfile | head -1 | cut -d= -f2)
             REASON="New stack: CR ${{ steps.deps.outputs.latest_compute }} + llama.cpp ${{ steps.llama.outputs.latest_v }} (Dockerfile pin $CR_CUR)"
+          fi
+
+          if [ "$FORCE" == "true" ]; then
+            SHOULD_BUILD=true
+            REASON="Forced by manual dispatch (force=true)"
           fi
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
