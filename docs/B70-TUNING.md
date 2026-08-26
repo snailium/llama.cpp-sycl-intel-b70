@@ -119,9 +119,9 @@ The CI workflows auto-pick up dependency updates; see the **CI / Automatic build
 
 ## 9. B70 disappearance / PCIe link training (B450 etc.)
 
-Some motherboards (notably ASUS ROG STRIX B450-F) can lose the B70 after heavy load, crash, or reboot: `lspci` no longer shows it.
+Some motherboards (notably ASUS ROG STRIX B450-F) can drop the B70 from the bus: `lspci` no longer shows it. The root cause is **PCIe link-training instability on the B450**, and a plain reboot can trigger it (not only heavy load).
 
-**Recovery sequence that works:**
+**Recovery sequence that works (unchanged):**
 1. Power off completely.
 2. Physically remove the B70.
 3. Boot the system using the integrated GPU.
@@ -129,9 +129,10 @@ Some motherboards (notably ASUS ROG STRIX B450-F) can lose the B70 after heavy l
 5. Re-insert the B70 (direct into the motherboard slot).
 6. Boot again.
 
+This remove → boot → shutdown → reinsert → boot cycle forces a clean PCIe link-training cycle; the card must be physically reseated.
+
 **Prevention / stability:**
-- Prefer a direct motherboard slot (avoid risers/extenders in daily use — confirmed the dropout reproduces even with a direct slot).
-- `pcie_aspm=off` in the kernel cmdline prevents recurrence on this platform.
+- `pcie_aspm=off` in the kernel cmdline is applied as a stability mitigation on this platform.
 - Monitor `dmesg | grep -iE 'xe|pcie|fault'` and `journalctl -b -1` after incidents.
 - Record full timelines in `benchmark/incidents/` when it happens.
 

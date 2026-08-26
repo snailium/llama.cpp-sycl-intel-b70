@@ -8,7 +8,7 @@ This document consolidates everything learned while deploying, debugging, and me
 - **Recommended config:** **F16 KV** + **96k** + **Q4_0 MTP draft (MTP3/0.1)** + **Q8 mmproj** on the **v0.3.0 + oneDNN/XMX** image — full-suite (T1–T5 + V1–V3) pass, 0 crashes. XMX prefill ≈392 t/s (1.85–2× vs q8_0 no-DNN), decode ≈22–26 t/s. Prior q8_0/128k MTP4 kept as full-context fallback.
 - **Q8 draft insight (upgrade stack):** at 128k/context the **BF16 MTP draft crashes** (`Failed to allocate physical memory` — its speculative buffer reserve exceeds the 32 GB card). Quantizing the draft to **Q8_0** frees ~1.5 GB and restores 128k with no acceptance loss (0.567 vs 0.5670).
 - **MTP crash insight (upgrade stack):** the 128k/context crash is the **draft model's speculative buffer reserve** (`phys.emplace` → `Failed to allocate physical memory`), not the KV cache — fix it by **quantizing the draft to Q8_0** (frees ~1.5 GB, acceptance unchanged). Separately, **f16 KV** OOMs at MTP + large context — fix that with **q8_0 KV**.
-- **Card dropout:** caused by **PCIe ASPM** → add `pcie_aspm=off` and use the physical recovery sequence (below).
+- **Card dropout:** caused by **B450 PCIe link-training instability** (a board-level issue that can be triggered by a plain reboot, not just heavy load). Apply the `pcie_aspm=off` kernel flag as a mitigation and use the physical reseat recovery sequence (below).
 - **llama.cpp is ~2–3× slower than vLLM** because the SYCL backend **does not actually use B70's XMX** (confirmed in source, see below).
 
 ## 1. Recommended deployment
@@ -97,7 +97,7 @@ export ZES_ENABLE_SYSMAN=1
 - **q8_0 KV is the lifeline for MTP + large context.** With f16 KV, the 5.9 GB MTP draft crowds out KV headroom and long agent chains OOM host RAM.
 - **Host RAM is the more dangerous limit** than VRAM (observed up to 26 GB+ peak + swap).
 - `failed to fit params... n_gpu_layers 999` is a common, non-fatal warning.
-- Dropouts are almost always **PCIe ASPM** → `pcie_aspm=off` in the kernel cmdline resolves recurrence.
+- Dropouts stem from **B450 PCIe link-training instability** (board-level; can occur on a plain reboot). Add `pcie_aspm=off` to the kernel cmdline as a mitigation; the physical reseat sequence (remove → boot → shutdown → reinsert → boot) is the reliable recovery.
 - After a dropout, recovery **must be physical**: remove card → boot on iGPU → shut down → reinsert card → boot.
 
 ## 7. The XMX reality (why llama.cpp is slower)
