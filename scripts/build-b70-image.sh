@@ -9,7 +9,7 @@ set -euo pipefail
 TARGET=${1:-server}
 TAG=${2:-llama.cpp-sycl-b70:${TARGET}}
 
-echo "Building target=${TARGET} tag=${TAG}"
+echo "Building (oneDNN/XMX-enabled) target=${TARGET} tag=${TAG}"
 
 docker build \
   --target "${TARGET}" \
@@ -20,6 +20,7 @@ docker build \
   --build-arg GGML_SYCL_DEVICE_ARCH=bmg-g31 \
   .
 
-echo "Done: ${TAG}"
+echo "Done: ${TAG}  (built with oneDNN/XMX: GGML_SYCL_DNN=ON)"
 echo "Test with:"
-echo "  docker run --rm -it --device /dev/dri/renderD128:/dev/dri/renderD128 -v \$PWD/models:/models -p 8080:8080 ${TAG} --help"
+echo "  docker run --rm -it --device /dev/dri/renderD128:/dev/dri/renderD128 -v \\\$PWD/models:/models -p 8080:8080 -e GGML_SYCL_FA_ONEDNN=1 ${TAG} --help"
+echo "Note: at runtime use GGML_SYCL_FA_ONEDNN=1 with F16 KV (--cache-type-k/v f16) for the XMX flash-attn path."

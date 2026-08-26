@@ -43,6 +43,14 @@ docker build \
 
 Build targets: `server` (recommended), `light`, `full`. Override any Intel dependency pin at build time via `--build-arg` (`IGC_VERSION`, `COMPUTE_RUNTIME_VERSION`, `LEVEL_ZERO_VERSION`, …).
 
+> **DNN / XMX:** the image built above is **oneDNN-enabled** — the Dockerfile installs
+> `intel-oneapi-dnnl-devel` (build) + `intel-oneapi-dnnl` (runtime) and configures
+> `-DGGML_SYCL_DNN=ON` (default ON for llama.cpp v0.3.0). This unlocks the **XMX**
+> flash-attention SDPA path on the B70 (deep-context prefill ≈2×, up to 4–5×).
+> To use it at runtime set `GGML_SYCL_FA_ONEDNN=1` **and** use **F16 KV**
+> (`--cache-type-k/v f16`, see §Run) — XMX SDPA only fires on native F16, BF16 is
+> explicitly excluded by the oneDNN kernel.
+
 ### 2. Run on B70
 
 Find your render device first:
@@ -148,16 +156,23 @@ We explicitly do **not** set `GGML_SYCL_DISABLE_OPT`.
 
 ```bash
 source /opt/intel/oneapi/setvars.sh
+# oneDNN/libdnnl is required for the XMX SDPA path (GGML_SYCL_DNN=ON):
+#   apt-get install intel-oneapi-dnnl-devel   (Intel oneAPI repo)  OR  libdnnl-dev
 cmake -B build \
   -DGGML_SYCL=ON \
   -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx \
   -DGGML_SYCL_DEVICE_ARCH=bmg-g31 \
   -DGGML_SYCL_F16=ON \
+  -DGGML_SYCL_DNN=ON \
+  -DDNNL_ROOT=/opt/intel/oneapi/dnnl/latest \
   -DGGML_BACKEND_DL=ON
 cmake --build build --config Release -j$(nproc)
 ```
 
-Then run with the env vars above. **Note:** a bare-metal build may hit the Intel driver "version triangle" and fail to initialize at runtime — the prebuilt container is the reliable path (see `docs/B70-SYCL-KNOWLEDGE.md` §2).
+Then run with the env vars above. `GGML_SYCL_DNN=ON` enables the oneDNN/XMX
+flash-attention path (run with `GGML_SYCL_FA_ONEDNN=1` + F16 KV). **Note:** a
+bare-metal build may hit the Intel driver "version triangle" and fail to initialize
+at runtime — the prebuilt container is the reliable path (see `docs/B70-SYCL-KNOWLEDGE.md` §2).
 
 ## Performance notes (B70)
 
