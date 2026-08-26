@@ -34,10 +34,27 @@ if ! [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
 fi
 
 echo "Promoting $DIGEST -> $REPO"
+# Warn (r7 N1): a release tag already pointing to a *different* digest means we're
+# silently repointing a known-good anchor to new bits — cached consumers won't pick
+# the change up, so surface it explicitly. Normalize the sha256: prefix for compare.
+warn_if_repoint() {
+  local tag="$1" cur new
+  cur=$(docker buildx imagetools inspect "$REPO:$tag" --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+  new="${DIGEST#sha256:}"
+  if [ -n "$cur" ]; then
+    cur="${cur#sha256:}"
+    if [ "$cur" != "$new" ]; then
+      echo "  ⚠️ :$tag already → sha256:$cur; repointing to sha256:$new" >&2
+    fi
+  fi
+}
+
+warn_if_repoint stable
 docker buildx imagetools create --tag "$REPO:stable" "$REPO@$DIGEST"
 echo "  ✓ :stable"
 
 if [ -n "$SEMVER" ]; then
+  warn_if_repoint "$SEMVER"
   docker buildx imagetools create --tag "$REPO:$SEMVER" "$REPO@$DIGEST"
   echo "  ✓ :$SEMVER"
 fi

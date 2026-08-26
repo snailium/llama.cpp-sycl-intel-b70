@@ -9,7 +9,7 @@ This document consolidates everything learned while deploying, debugging, and me
 - **Q8 draft insight (upgrade stack):** at 128k/context the **BF16 MTP draft crashes** (`Failed to allocate physical memory` — its speculative buffer reserve exceeds the 32 GB card). Quantizing the draft to **Q8_0** frees ~1.5 GB and restores 128k with no acceptance loss (0.567 vs 0.5670).
 - **MTP crash insight (upgrade stack):** the 128k/context crash is the **draft model's speculative buffer reserve** (`phys.emplace` → `Failed to allocate physical memory`), not the KV cache — fix it by **quantizing the draft to Q8_0** (frees ~1.5 GB, acceptance unchanged). Separately, **f16 KV** OOMs at MTP + large context — fix that with **q8_0 KV**.
 - **Card dropout:** caused by **B450 PCIe link-training instability** (a board-level issue that can be triggered by a plain reboot, not just heavy load). Apply the `pcie_aspm=off` kernel flag as a mitigation and use the physical reseat recovery sequence (below).
-- **llama.cpp is ~2–3× slower than vLLM** because the SYCL backend **does not actually use B70's XMX** (confirmed in source, see below).
+- **llama.cpp is ~2–3× slower than vLLM** in its default **matmul** path because those SYCL kernels **don't use B70's XMX** (confirmed in source, see §7) — but the **oneDNN/XMX flash-attention path** (v0.3.0+, `GGML_SYCL_DNN=ON` + `GGML_SYCL_FA_ONEDNN=1` + F16 KV) **is** active on the B70 (prefill 392+ t/s, R2).
 
 ## 1. Recommended deployment
 
@@ -94,7 +94,7 @@ export ZES_ENABLE_SYSMAN=1
 
 ## 6. Memory & stability core
 
-- **q8_0 KV is the lifeline for MTP + large context.** With f16 KV, the 5.9 GB MTP draft crowds out KV headroom and long agent chains OOM host RAM.
+- **q8_0 KV is the lifeline for MTP + 128k (fallback / pre-DNN path).** With f16 KV, the 5.9 GB draft crowds out KV headroom and long agent chains OOM host RAM. The recommended DNN/XMX config instead uses **F16 KV + 96k** (+1.5 GB margin, verified 0 OOM).
 - **Host RAM is the more dangerous limit** than VRAM (observed up to 26 GB+ peak + swap).
 - `failed to fit params... n_gpu_layers 999` is a common, non-fatal warning.
 - Dropouts stem from **B450 PCIe link-training instability** (board-level; can occur on a plain reboot). Add `pcie_aspm=off` to the kernel cmdline as a mitigation; the physical reseat sequence (remove → boot → shutdown → reinsert → boot) is the reliable recovery.
@@ -102,7 +102,7 @@ export ZES_ENABLE_SYSMAN=1
 
 ## 7. The XMX reality (why llama.cpp is slower)
 
-The llama.cpp SYCL backend **does not actually use B70's XMX** matrix units yet. Source evidence in `ggml-sycl/common.hpp`:
+The llama.cpp SYCL backend's **default matmul (non-DNN) kernels** do not use B70's XMX matrix units. Source evidence in `ggml-sycl/common.hpp`:
 
 ```cpp
 // define for XMX in Intel GPU
@@ -112,7 +112,9 @@ The llama.cpp SYCL backend **does not actually use B70's XMX** matrix units yet.
 #endif
 ```
 
-`SYCL_USE_XMX` only selects MMQ vs DMMV kernels — it is **not** a real DPAS/XMX invocation. This is the main reason llama.cpp is 2–3× slower than vLLM (which uses a dedicated XPU XMX kernel path). Worth re-checking as upstream matures (see `benchmark/results/2026-08-21-mtp4-128k.md` §IV for the vLLM comparison).
+`SYCL_USE_XMX` only selects MMQ vs DMMV kernels — it is **not** a real DPAS/XMX invocation in the **matmul** path. This is why the default build's matmul is ~2–3× slower than vLLM (which uses a dedicated XPU XMX kernel path). Worth re-checking as upstream matures (see `benchmark/results/2026-08-21-mtp4-128k.md` §IV for the vLLM comparison).
+
+> **DNN/XMX exception (v0.3.0+, r7 audit):** the above applies to the **matmul / default (non-DNN) path only**. Since llama.cpp **v0.3.0** with `GGML_SYCL_DNN=ON` (default) + runtime `GGML_SYCL_FA_ONEDNN=1` + **F16 KV**, the flash-attention **SDPA** path runs through **oneDNN and its XMX SDPA is active on the B70** — measured **prefill 392–430 t/s (1.8–3.3× the 212 t/s no-DNN baseline)**, deep contexts 487–580 t/s (matches community 570@65k). See `benchmark/results/2026-08-25-v030-f16-96k-dnn-mtp3-q4.md` (R2) and `…-f16-96k-dnn-mtp4.md` (R1). BF16 KV is excluded from this path (see §Build).
 
 ## 8. Monitoring & debugging
 

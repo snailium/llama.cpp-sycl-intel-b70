@@ -10,8 +10,8 @@ The official `ghcr.io/ggml-org/llama.cpp:* -intel` images often lag on oneAPI / 
 - **Recommended config verified:** **F16 KV + 96k + Q4_0 MTP draft, MTP3/0.1 + Q8 mmproj**, on the **v0.3.0 + oneDNN/XMX** image (`GGML_SYCL_FA_ONEDNN=1`) ≈ **prefill 392 t/s / decode 26.2 t/s**, draft acceptance 0.573. ~1.85× prefill over the q8_0 no-DNN baseline; full suite (T1–T5 + V1–V3) passes, 0 crashes.
 
 > **Q8 (not BF16) MTP draft is required on the upgrade stack at 128k** — the BF16 draft's speculative buffer reserve crashes the 32 GB card; Q8 frees ~1.5 GB with no acceptance loss.
-- **q8_0 KV is the stability lifeline** — the fix that makes MTP + large context fit in 32 GB without host-RAM OOM.
-- **Why it's slower than vLLM, in one line:** the llama.cpp SYCL backend does not yet use B70's XMX matrix units (source-confirmed). See [`docs/B70-SYCL-KNOWLEDGE.md`](./docs/B70-SYCL-KNOWLEDGE.md).
+- **q8_0 KV is the stability lifeline for the 128k fallback path** — the fix that made MTP + 128k fit in 32 GB without host-RAM OOM. The recommended DNN/XMX config instead uses **F16 KV + 96k** (+1.5 GB headroom, see above).
+- **Why it's slower than vLLM, in one line:** the llama.cpp SYCL backend's **default matmul kernels** don't yet use B70's XMX — but the **oneDNN/XMX flash-attention path** (v0.3.0+, `GGML_SYCL_DNN=ON`) **does** (prefill 392+ t/s). See [`docs/B70-SYCL-KNOWLEDGE.md`](./docs/B70-SYCL-KNOWLEDGE.md) §7.
 
 ## Why a community image for B70?
 
@@ -48,8 +48,14 @@ Build targets: `server` (recommended), `light`, `full`. Override any Intel depen
 > `-DGGML_SYCL_DNN=ON` (default ON for llama.cpp v0.3.0). This unlocks the **XMX**
 > flash-attention SDPA path on the B70 (deep-context prefill ≈2×, up to 4–5×).
 > To use it at runtime set `GGML_SYCL_FA_ONEDNN=1` **and** use **F16 KV**
-> (`--cache-type-k/v f16`, see §Run) — XMX SDPA only fires on native F16, BF16 is
+> `--cache-type-k/v f16`, see §Run) — XMX SDPA only fires on native F16, BF16 is
 > explicitly excluded by the oneDNN kernel.
+>
+> **After a build-config change** (e.g. base image, oneDNN, or any Dockerfile edit):
+> the GHCR dedup fingerprint (`server-c<CR>-<llama>-`) does **not** include build
+> config, so CI treats the current combo as already built and skips it. Run the
+> **Build Stable** workflow from the **Actions** UI with **`force: true`** to rebuild
+> this combo under the new config (the fresh candidate then satisfies dedup).
 
 ### 2. Run on B70
 
