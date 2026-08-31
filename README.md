@@ -112,6 +112,26 @@ Full details and memory footprints in [`benchmark/configs/`](./benchmark/configs
 - **q8_0 KV** is required for MTP + 96k–128k (f16 KV + MTP + large ctx OOMs). f16 KV is fine for short contexts.
 - **Use a high-quality MTP draft (Q8_0 on the upgrade stack; BF16 on the old stack)** — a low-acceptance 2B draft is a net slowdown.
 
+### Recommended sampling parameters for Qwen3.8-27B (official, 2026-08)
+
+Source: the official **Qwen3.8-27B HF model card** (`Recommended Inference Parameters`). Two modes:
+
+| Mode | temperature | top_p | top_k | min_p | presence_penalty | repetition_penalty |
+|------|------------|-------|-------|-------|------------------|--------------------|
+| **Thinking** | 1.0 | 0.95 | 20 | 0.0 | 0.0 | 1.0 |
+| **Instruct (non-thinking) — use for agents** | **0.7** | **0.80** | **20** | **0.0** | **1.5** | **1.0** |
+
+> **The textbook fix for Qwen3.8 verbosity/rambling in non-thinking mode is `presence_penalty=1.5`** (penalizes already-seen tokens), *not* a manually-lowered temperature. With `--temp 0.7 --top-p 0.80 --top-k 20 --min-p 0.0 --presence-penalty 1.5 --frequency-penalty 0.0 --repeat-penalty 1.0` the model answers crisply with no thinking leakage into the visible channel and intact function-calling.
+
+Add these to the `llama-server` invocation when serving Qwen3.8-27B in non-thinking mode (verify with `GET /v1/... /props` → `default_generation_settings.params`):
+
+```bash
+--temp 0.7 --top-p 0.80 --top-k 20 --min-p 0.0 \
+--presence-penalty 1.5 --frequency-penalty 0.0 --repeat-penalty 1.0
+```
+
+**Chat template note:** the GGUF bakes in the official native Qwen3.8-27B template (8952 chars, full `enable_thinking` / `reasoning_effort` VL + XML tool logic). A log line like `Using specialized template: Qwen3-Coder` is just llama.cpp's name for the `arch=qwen35` built-in — the in-GGUF template is loaded in preference (`example_format: '<|im_start|>system`). Disable thinking per-request with `chat_template_kwargs.enable_thinking:false` (or `reasoning_effort:"none"`); a bare top-level `enable_thinking` is ignored by this build.
+
 ## Project structure
 
 ```

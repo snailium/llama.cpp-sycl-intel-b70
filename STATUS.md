@@ -31,6 +31,7 @@ All major features remain enabled: Flash Attention, reorder kernels, MTP / specu
   - **MTP3 + 96k + q8_0 KV — 5/5 text tasks** (legacy-safe, pre-upgrade).
   - **MTP4 + 128k + q8_0 KV — 5/5 text + 3 vision** (max context, old stack).
   - no-draft + 128k + f16 KV — stable agent workhorse.
+- **Official Qwen3.8-27B sampling (instruct/non-thinking)** verified: `--temp 0.7 --top-p 0.80 --top-k 20 --min-p 0.0 --presence-penalty 1.5 --frequency-penalty 0.0 --repeat-penalty 1.0` — crisp output, no thinking leakage into visible channel, function-calling intact. (Qwen's textbook fix for verbosity = `presence_penalty=1.5`, not low temperature. See README §"Recommended sampling parameters".)
 - Flash Attention enabled; speculative/MTP drafts supported by the binary.
 - `pcie_aspm=off` host flag for PCIe stability (B450).
 
