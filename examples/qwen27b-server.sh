@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Recommended launch for Qwen3.8-27B (Q4_K_M) + MTP on single Arc Pro B70 (SYCL)
-# Based on final benchmark results (MTP4 + 128k + q8_0 KV)
+# Based on A/B benchmark result (MTP3 + 128k + q8_0 KV): MTP3 wins for agent load
+# over MTP4 (see benchmark/results/2026-09-01-mtp3-ab.md).
 
 set -euo pipefail
 
@@ -18,7 +19,7 @@ exec llama-server \
   --mmproj "$MMProj" \
   --spec-draft-model "$DRAFT" \
   --spec-type draft-mtp \
-  --spec-draft-n-max 4 \
+  --spec-draft-n-max 3 \
   --spec-draft-p-min 0.1 \
   --n-gpu-layers 999 \
   --ctx-size "$CTX" \
