@@ -51,13 +51,15 @@ export ZES_ENABLE_SYSMAN=1
 
 > Rule of thumb: **f16 KV + MTP + ≥96k → near-certain OOM.** Default to q8_0 when running speculative MTP at large context (see `benchmark/METHODOLOGY.md` §4).
 
-## 5. Recommended server flags for 27B-class models
+## 5. Server flags for 27B-class models
 
-**Recommended (F16 KV + 96k + Q4_0 MTP draft, MTP3/0.1 + Q8 mmproj; v0.3.0 + oneDNN/XMX, `GGML_SYCL_FA_ONEDNN=1`):**
+**Golden (current production, 2026-09-14):** q8_0 KV + `--ctx-size 131072` + Q8_0 MTP draft (MTP3/0.1) + Q8_0 mmproj + `--reasoning off` + template-level `enable_thinking:false`. Exact list and rationale: [`GOLDEN-CONFIG.md`](./GOLDEN-CONFIG.md) §3; also `examples/qwen27b-server.sh` and `docker-compose.yml`.
+
+**Historical (v0.3.0 era, superseded)** — F16 KV + 96k + Q4_0 MTP draft (kept for the F16-vs-q8_0 trade-off):
 
 ```bash
 # env (also set ONEAPI_DEVICE_SELECTOR=level_zero:0, SYCL_CACHE_PERSISTENT=0, ZES_ENABLE_SYSMAN=1)
-export GGML_SYCL_FA_ONEDNN=1
+# GGML_SYCL_FA_ONEDNN defaults to 1 in the source
 ./llama-server \
   -m /models/Qwen3.8-27B-Q4_K_M.gguf \
   --mmproj /models/mmproj-Qwen3.8-27B-Q8_0.gguf \
@@ -73,9 +75,10 @@ export GGML_SYCL_FA_ONEDNN=1
   --port 8080 --host 0.0.0.0
 ```
 
-> **Recommended (R2):** F16 KV + 96k + Q4_0 MTP draft (MTP3/0.1) on the oneDNN/XMX build.
-> `GGML_SYCL_FA_ONEDNN=1` routes deep prefills through XMX (~1.85× prefill over q8_0 no-DNN).
-> Prior q8_0/128k MTP4 kept as full-context fallback.
+> **Historical note (R2):** F16 KV + 96k + Q4_0 MTP draft (MTP3/0.1) on the oneDNN/XMX build.
+> `GGML_SYCL_FA_ONEDNN` routes eligible prefills through XMX (~1.85× prefill over q8_0 with the
+> XMX path off). Since upstream #25874 (merged 2026-08-04) quantized KV also reaches that path
+> (dequantize→f16 at prefill lengths); BF16 and IQ* KV stay excluded.
 
 **MTP / speculative decoding:** use a draft-model GGUF with `--spec-draft-model` (`-md`) + `--spec-type draft-mtp`. Nothing in this image disables the speculative paths.
 

@@ -1,50 +1,99 @@
+# Golden container definition — mirrors the deployed production stack.
+# Single source of truth: docs/GOLDEN-CONFIG.md
+#
+#   docker compose up -d
+#
+# Override any value through the environment, e.g.:
+#   B70_IMAGE=ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:stable \
+#   MODELS_DIR=/srv/models B70_PORT=18082 docker compose up -d
 version: "3.8"
 
 services:
   llama-sycl-b70:
-    build:
-      context: .
-      dockerfile: .devops/intel.Dockerfile
-      target: server
-      args:
-        ONEAPI_VERSION: "2026.1.2-devel-ubuntu26.04"
-        GGML_SYCL_F16: "ON"
-        GGML_SYCL_DEVICE_ARCH: "bmg-g31"
-    image: llama.cpp-sycl-b70:server
-    container_name: llama-sycl-b70
-    restart: unless-stopped
+    # Prebuilt golden image (llama.cpp v0.4.1 + compute-runtime 26.31.39395.13 + oneDNN/XMX).
+    image: ${B70_IMAGE:-ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:stable}
+    # To build locally instead, comment out `image:` above and uncomment this block:
+    # build:
+    #   context: .
+    #   dockerfile: .devops/intel.Dockerfile
+    #   target: server
+    #   args:
+    #     ONEAPI_VERSION: "2026.1.2-devel-ubuntu26.04"
+    #     GGML_SYCL_F16: "ON"
+    #     GGML_SYCL_DEVICE_ARCH: "bmg-g31"
+    container_name: ${B70_NAME:-b70-llama}
+    # Deliberately "no": after a host/PCIe event the GPU container must be started
+    # consciously rather than resurrected by the restart policy.
+    restart: "no"
     ports:
-      - "8080:8080"
+      - "${B70_PORT:-18082}:8080"
     devices:
-      - /dev/dri/renderD128:/dev/dri/renderD128
-      - /dev/dri/card0:/dev/dri/card0
+      # Whole /dev/dri directory: survives render node index changes (renderD128/renderD129).
+      - /dev/dri:/dev/dri
     volumes:
-      - /mnt/models:/models:ro
+      - ${MODELS_DIR:-./models}:/models:ro
     environment:
-      - ONEAPI_DEVICE_SELECTOR=level_zero:0
-      - SYCL_CACHE_PERSISTENT=0
+      - ONEAPI_DEVICE_SELECTOR=level_zero:0   # pin to the discrete GPU
+      - SYCL_CACHE_PERSISTENT=0               # mandatory: =1 SIGSEGVs on Xe2 during the first JIT
       - ZES_ENABLE_SYSMAN=1
-      - LLAMA_ARG_HOST=0.0.0.0
+      # GGML_SYCL_FA_ONEDNN is intentionally unset: the source default is 1 (XMX oneDNN SDPA).
     command:
       - -m
       - /models/Qwen3.8-27B-Q4_K_M.gguf
+      - --mmproj
+      - /models/mmproj-Qwen3.8-27B-Q8_0.gguf
+      - --no-mmproj-offload
+      - --image-min-tokens
+      - "1024"
       - --n-gpu-layers
       - "999"
       - --ctx-size
-      - --cache-type-k
-      - "q8_0"
-      - --cache-type-v
-      - "q8_0"
       - "131072"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
       - --flash-attn
       - "on"
-      - --port
-      - "8080"
+      - --spec-draft-model
+      - /models/mtp-Qwen3.8-27B-Q8_0.gguf
+      - --spec-type
+      - draft-mtp
+      - --spec-draft-n-max
+      - "3"
+      - --spec-draft-p-min
+      - "0.1"
+      - --spec-draft-type-k
+      - q8_0
+      - --spec-draft-type-v
+      - q8_0
+      - --reasoning
+      - "off"
+      - --temp
+      - "0.7"
+      - --top-p
+      - "0.80"
+      - --top-k
+      - "20"
+      - --min-p
+      - "0.0"
+      - --presence-penalty
+      - "1.5"
+      - --frequency-penalty
+      - "0.0"
+      - --repeat-penalty
+      - "1.0"
+      - --chat-template-kwargs
+      - '{"enable_thinking":false,"preserve_thinking":false}'
       - --host
       - 0.0.0.0
+      - --port
+      - "8080"
     healthcheck:
+      # /health returns 503 ("Loading model") until the ~2 min model load finishes;
+      # start_period covers that window.
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 180s

@@ -1,15 +1,22 @@
 # llama.cpp + SYCL on Intel Arc Pro B70 — Field Notes (2026-08)
 
+> **Current production configuration lives in [`GOLDEN-CONFIG.md`](./GOLDEN-CONFIG.md)** (as of
+> 2026-09-14: llama.cpp v0.4.1, q8_0 KV + 128k + MTP3 + Q8_0 MTP draft). This document is the
+> historical "why" behind those choices — several recommendations below are from the v0.3.0 era
+> (F16 KV + 96k + Q4_0 draft) and are **superseded**; they are kept for the reasoning and the
+> measured trade-offs.
+
 This document consolidates everything learned while deploying, debugging, and measuring llama.cpp + SYCL on the Intel Arc Pro B70. It is the "why" behind the recommended configuration; for hands-on flags see [`B70-TUNING.md`](./B70-TUNING.md) and for test numbers see [`benchmark/`](../benchmark/README.md).
 
 ## Bottom line (as of 2026-08)
 
 - **Use the prebuilt container** `llama.cpp-sycl-b70:server`. Do **not** build llama.cpp from source for B70 — the Intel driver "version triangle" (below) makes a self-built runtime fail to initialize.
-- **Recommended config:** **F16 KV** + **96k** + **Q4_0 MTP draft (MTP3/0.1)** + **Q8 mmproj** on the **v0.3.0 + oneDNN/XMX** image — full-suite (T1–T5 + V1–V3) pass, 0 crashes. XMX prefill ≈392 t/s (1.85–2× vs q8_0 no-DNN), decode ≈22–26 t/s. Prior q8_0/128k MTP4 kept as full-context fallback.
+- **Current config (2026-09-14, v0.4.1):** **q8_0 KV** + **131072 ctx** + **Q8_0 MTP draft (MTP3/0.1)** + **Q8_0 mmproj** — see [`GOLDEN-CONFIG.md`](./GOLDEN-CONFIG.md). Text prefill 470–490 tok/s, decode 41–46 tok/s (short context), draft acceptance 0.53–0.90, full suite pass, 0 crashes.
+- **Superseded config (v0.3.0 era):** F16 KV + 96k + Q4_0 MTP draft + Q8 mmproj on the oneDNN/XMX image — XMX prefill ≈392 t/s (1.85–2× vs q8_0 no-DNN), decode ≈22–26 t/s. Kept below for the trade-off analysis (F16 is the native no-dequant path for SDPA, at ~2× KV memory).
 - **Q8 draft insight (upgrade stack):** at 128k/context the **BF16 MTP draft crashes** (`Failed to allocate physical memory` — its speculative buffer reserve exceeds the 32 GB card). Quantizing the draft to **Q8_0** frees ~1.5 GB and restores 128k with no acceptance loss (0.567 vs 0.5670).
 - **MTP crash insight (upgrade stack):** the 128k/context crash is the **draft model's speculative buffer reserve** (`phys.emplace` → `Failed to allocate physical memory`), not the KV cache — fix it by **quantizing the draft to Q8_0** (frees ~1.5 GB, acceptance unchanged). Separately, **f16 KV** OOMs at MTP + large context — fix that with **q8_0 KV**.
 - **Card dropout:** caused by **B450 PCIe link-training instability** (a board-level issue that can be triggered by a plain reboot, not just heavy load). Apply the `pcie_aspm=off` kernel flag as a mitigation and use the physical reseat recovery sequence (below).
-- **llama.cpp is ~2–3× slower than vLLM** in its default **matmul** path because those SYCL kernels **don't use B70's XMX** (confirmed in source, see §7) — but the **oneDNN/XMX flash-attention path** (v0.3.0+, `GGML_SYCL_DNN=ON` + `GGML_SYCL_FA_ONEDNN=1` + F16 KV) **is** active on the B70 (prefill 392+ t/s, R2).
+- **llama.cpp is ~2–3× slower than vLLM** in its default **matmul** path because those SYCL kernels **don't use B70's XMX** (confirmed in source, see §7) — but the **oneDNN/XMX flash-attention path** (v0.3.0+, `GGML_SYCL_DNN=ON` + `GGML_SYCL_FA_ONEDNN=1`) **is** active on the B70 (prefill 470–490 tok/s on the golden config). Since upstream #25874 (merged 2026-08-04), **quantized KV also reaches this path** by dequantizing to f16 at prefill lengths — only BF16 and IQ* KV are excluded, so "XMX needs F16 KV" is no longer accurate.
 
 ## 1. Recommended deployment
 
@@ -60,13 +67,15 @@ export SYCL_CACHE_PERSISTENT=0     # MUST be 0; =1 SIGSEGVs on Xe2 during JIT
 export ZES_ENABLE_SYSMAN=1
 ```
 
-## 4. Final recommended launch flags
+## 4. Launch flags
 
-**Recommended (F16 KV + 96k + Q4_0 MTP draft, MTP3/0.1; v0.3.0 + oneDNN/XMX, `GGML_SYCL_FA_ONEDNN=1`):**
+**Golden (current production, 2026-09-14):** q8_0 KV + 131072 ctx + Q8_0 MTP draft (MTP3/0.1) + Q8_0 mmproj + thinking off — the exact argument list is in [`GOLDEN-CONFIG.md`](./GOLDEN-CONFIG.md) §3, mirrored by `examples/qwen27b-server.sh` and `docker-compose.yml`. Measured: text prefill 470–490 tok/s, decode 41–46 tok/s (short context), draft acc 0.53–0.90.
+
+**Historical (v0.3.0 era, superseded):** F16 KV + 96k + Q4_0 MTP draft, MTP3/0.1, oneDNN/XMX:
 
 ```bash
 # env: ONEAPI_DEVICE_SELECTOR=level_zero:0, SYCL_CACHE_PERSISTENT=0,
-#      ZES_ENABLE_SYSMAN=1, GGML_SYCL_FA_ONEDNN=1
+#      ZES_ENABLE_SYSMAN=1 (GGML_SYCL_FA_ONEDNN defaults to 1)
 --ctx-size 98304 \
 --cache-type-k f16 --cache-type-v f16 \
 --flash-attn on \
@@ -79,11 +88,13 @@ export ZES_ENABLE_SYSMAN=1
 --n-gpu-layers 999
 ```
 
-> **Recommended (R2):** F16 KV + 96k + Q4_0 MTP draft (MTP3/0.1) on the oneDNN/XMX build;
+> **Historical note (R2):** F16 KV + 96k + Q4_0 MTP draft (MTP3/0.1) on the oneDNN/XMX build;
 > XMX prefill ≈392 t/s vs q8_0 no-DNN 212 (1.85×), decode ≈26.2 t/s, draft acc 0.573,
-> +1.5GB VRAM headroom. Prior q8_0/128k MTP4 (`v030-u26-mtp4-q8`) kept as full-context fallback.
+> +1.5GB VRAM headroom. Its value today is the trade-off it documents: F16 KV is the native
+> (no-dequant) SDPA path, but it costs ~2× KV memory, which is why the golden config moved to
+> q8_0 KV at full 128k.
 
-**Model stack:** use ggml-org quants (Q4_K_M main + Q8_0 mmproj + Q4_0 MTP draft). See `examples/qwen27b-server.sh`.
+**Model stack:** use ggml-org quants (Q4_K_M main + Q8_0 mmproj + Q8_0 MTP draft). See `examples/qwen27b-server.sh`.
 
 ## 5. MTP tuning notes
 
@@ -94,7 +105,7 @@ export ZES_ENABLE_SYSMAN=1
 
 ## 6. Memory & stability core
 
-- **q8_0 KV is the lifeline for MTP + 128k (fallback / pre-DNN path).** With f16 KV, the 5.9 GB draft crowds out KV headroom and long agent chains OOM host RAM. The recommended DNN/XMX config instead uses **F16 KV + 96k** (+1.5 GB margin, verified 0 OOM).
+- **q8_0 KV is the lifeline for MTP + 128k.** With f16 KV, the draft crowds out KV headroom and long agent chains OOM host RAM. This is exactly why the **golden config** uses q8_0 KV at full 128k ([`GOLDEN-CONFIG.md`](./GOLDEN-CONFIG.md)); the v0.3.0-era alternative was F16 KV at 96k (+1.5 GB margin, 0 OOM).
 - **Host RAM is the more dangerous limit** than VRAM (observed up to 26 GB+ peak + swap).
 - `failed to fit params... n_gpu_layers 999` is a common, non-fatal warning.
 - Dropouts stem from **B450 PCIe link-training instability** (board-level; can occur on a plain reboot). Add `pcie_aspm=off` to the kernel cmdline as a mitigation; the physical reseat sequence (remove → boot → shutdown → reinsert → boot) is the reliable recovery.
@@ -142,10 +153,11 @@ Watch host memory peaks more than VRAM (host peaked 26 GB+ + swap).
 - [`docs/B70-TUNING.md`](./B70-TUNING.md) — hands-on flags and pitfalls.
 - [`benchmark/METHODOLOGY.md`](../benchmark/METHODOLOGY.md) — test methodology.
 - [`benchmark/configs/mtp4-128k.md`](../benchmark/configs/mtp4-128k.md) & [`benchmark/results/2026-08-21-mtp4-128k.md`](../benchmark/results/2026-08-21-mtp4-128k.md) — extreme 5/5 + vision.
-- [`benchmark/configs/v030-f16-96k-dnn-mtp3-q4.md`](../benchmark/configs/v030-f16-96k-dnn-mtp3-q4.md) & [`benchmark/results/2026-08-25-v030-f16-96k-dnn-mtp3-q4.md`](../benchmark/results/2026-08-25-v030-f16-96k-dnn-mtp3-q4.md) — **recommended / current production (v0.3.0 + oneDNN/XMX, F16, Q4-MTP3, 96k).**
+- [`benchmark/configs/golden-v041-q8-128k-mtp3.md`](../benchmark/configs/golden-v041-q8-128k-mtp3.md) & [`benchmark/results/2026-09-14-v041-stable.md`](../benchmark/results/2026-09-14-v041-stable.md) — **golden / current production (v0.4.1, q8_0 KV, 128k, MTP3 + Q8_0 draft).**
+- [`benchmark/configs/v030-f16-96k-dnn-mtp3-q4.md`](../benchmark/configs/v030-f16-96k-dnn-mtp3-q4.md) & [`benchmark/results/2026-08-25-v030-f16-96k-dnn-mtp3-q4.md`](../benchmark/results/2026-08-25-v030-f16-96k-dnn-mtp3-q4.md) — historical v0.3.0-era config (F16 KV, Q4-MTP3, 96k).
 - [`benchmark/configs/mtp3-q8-128k.md`](../benchmark/configs/mtp3-q8-128k.md) & [`benchmark/results/2026-08-25-mtp3-q8-128k.md`](../benchmark/results/2026-08-25-mtp3-q8-128k.md) — prior Q8 production (MTP3, superseded by MTP4).
 - [`benchmark/results/2026-08-21-mtp3-96k.md`](../benchmark/results/2026-08-21-mtp3-96k.md) — legacy-safe 5/5 (pre-upgrade).
 - [`benchmark/incidents/2026-08-21-gpu-dropout.md`](../benchmark/incidents/2026-08-21-gpu-dropout.md) — dropout record.
-- [`examples/qwen27b-server.sh`](../examples/qwen27b-server.sh) — current recommended launch script.
+- [`examples/qwen27b-server.sh`](../examples/qwen27b-server.sh) — golden launch script (mirrors the production container).
 
-**In short:** prebuilt container + **MTP4/128K + KV q8_0 + Q8 MTP draft + Q8 mmproj** on the **v0.3.0 + ubuntu26.04** upgrade stack (`:stable`). MTP4 acceptance is on par with MTP3 (≈0.57) with longer accepted runs. Any new config (higher n-max, f16 KV, larger ctx, BF16 draft at 128k) must first be validated for memory and dropout risk.
+**In short:** prebuilt container + the **golden config** — q8_0 KV + 131072 ctx + MTP3 with a **Q8_0 MTP draft** + Q8_0 mmproj on the v0.4.1 `:stable` stack ([`GOLDEN-CONFIG.md`](./GOLDEN-CONFIG.md)). On agent-shaped workloads MTP3 beats MTP4 (position-4 acceptance collapses: 0.81 / 0.66 / 0.54 / 0.46 per position), even though MTP4 accepts slightly more tokens per round on short one-shot generation. Any new config (higher n-max, f16 KV at large ctx, larger context, BF16 draft at 128k) must first be validated for memory and dropout risk.

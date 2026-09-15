@@ -7,11 +7,11 @@ The official `ghcr.io/ggml-org/llama.cpp:* -intel` images often lag on oneAPI / 
 ## ✨ Highlights
 
 - **First backend that reliably completes a full agent suite on B70.** llama.cpp + SYCL is the only B70 backend verified to pass all five benchmark tasks (T1–T5) in a single run — vLLM-MTP crashes on long agent chains.
-- **Recommended config verified:** **F16 KV + 96k + Q4_0 MTP draft, MTP3/0.1 + Q8 mmproj**, on the **v0.3.0 + oneDNN/XMX** image (`GGML_SYCL_FA_ONEDNN=1`) ≈ **prefill 392 t/s / decode 26.2 t/s**, draft acceptance 0.573. ~1.85× prefill over the q8_0 no-DNN baseline; full suite (T1–T5 + V1–V3) passes, 0 crashes.
+- **Golden config verified (v0.4.1, 2026-09-14):** **q8_0 KV / 131072 ctx + MTP3 with a Q8_0 MTP draft + Q8_0 mmproj** on the `:stable` image ≈ **prefill 470–490 t/s / decode 41–46 t/s (short context)** at draft acceptance 0.53–0.90; full suite (T1–T5 + V1–V3) passes, 0 crashes. See [`docs/GOLDEN-CONFIG.md`](./docs/GOLDEN-CONFIG.md).
 
-> **Q8 (not BF16) MTP draft is required on the upgrade stack at 128k** — the BF16 draft's speculative buffer reserve crashes the 32 GB card; Q8 frees ~1.5 GB with no acceptance loss.
-- **q8_0 KV is the stability lifeline for the 128k fallback path** — the fix that made MTP + 128k fit in 32 GB without host-RAM OOM. The recommended DNN/XMX config instead uses **F16 KV + 96k** (+1.5 GB headroom, see above).
-- **Why it's slower than vLLM, in one line:** the llama.cpp SYCL backend's **default matmul kernels** don't yet use B70's XMX — but the **oneDNN/XMX flash-attention path** (v0.3.0+, `GGML_SYCL_DNN=ON`) **does** (prefill 392+ t/s). See [`docs/B70-SYCL-KNOWLEDGE.md`](./docs/B70-SYCL-KNOWLEDGE.md) §7.
+> **Q8 (not BF16) MTP draft is required at 128k** — the BF16 draft's speculative buffer reserve crashes the 32 GB card; Q8 frees ~1.5 GB with no acceptance loss.
+- **q8_0 KV at 128k** is what makes the golden config fit on one card without host-RAM OOM, and (since upstream #25874, merged 2026-08-04) quantized KV still reaches the XMX oneDNN SDPA prefill path via dequantize→f16. The earlier v0.3.0-era recommendation used **F16 KV + 96k** (+1.5 GB headroom) — historical, see `docs/B70-SYCL-KNOWLEDGE.md`.
+- **Why it's slower than vLLM, in one line:** the llama.cpp SYCL backend's **default matmul kernels** don't yet use B70's XMX — but the **oneDNN/XMX flash-attention path** (v0.3.0+, `GGML_SYCL_DNN=ON`) **does** (prefill 470–490 t/s). See [`docs/B70-SYCL-KNOWLEDGE.md`](./docs/B70-SYCL-KNOWLEDGE.md) §7.
 
 ## Why a community image for B70?
 
@@ -65,24 +65,33 @@ Find your render device first:
 ls -l /dev/dri          # typically /dev/dri/renderD128 or renderD129 for the dGPU
 ```
 
-Docker run (with the mandatory environment inside or via `-e`):
+Docker run (**this is the golden production configuration** — full rationale, image digest and measured baseline in [`docs/GOLDEN-CONFIG.md`](./docs/GOLDEN-CONFIG.md)):
 
 ```bash
-docker run --rm -it \
+docker run -d --name b70-llama \
   --device /dev/dri \
-  -v /path/to/models:/models \
-  -p 8080:8080 \
+  -v /path/to/models:/models:ro \
+  -p 18082:8080 \
   -e ONEAPI_DEVICE_SELECTOR=level_zero:0 \
   -e SYCL_CACHE_PERSISTENT=0 \
   -e ZES_ENABLE_SYSMAN=1 \
-  llama.cpp-sycl-b70:server \
+  --restart no \
+  ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:stable \
   -m /models/Qwen3.8-27B-Q4_K_M.gguf \
+  --mmproj /models/mmproj-Qwen3.8-27B-Q8_0.gguf --no-mmproj-offload --image-min-tokens 1024 \
   --n-gpu-layers 999 \
-  --flash-attn on \
-  --ctx-size 98304 \
+  --ctx-size 131072 \
   --cache-type-k q8_0 --cache-type-v q8_0 \
+  --flash-attn on \
+  --spec-draft-model /models/mtp-Qwen3.8-27B-Q8_0.gguf \
+  --spec-type draft-mtp --spec-draft-n-max 3 --spec-draft-p-min 0.1 \
+  --spec-draft-type-k q8_0 --spec-draft-type-v q8_0 \
+  --reasoning off \
+  --chat-template-kwargs '{"enable_thinking":false,"preserve_thinking":false}' \
   --port 8080 --host 0.0.0.0
 ```
+
+Model load takes ~2 minutes; `/health` returns 503 ("Loading model") until then — poll `/v1/models` instead.
 
 **Mandatory environment (never set `GGML_SYCL_DISABLE_OPT`):**
 
@@ -98,19 +107,20 @@ A `docker-compose.yml` and a ready-made launcher for the Qwen3.8-27B MTP stack a
 
 | Config | Context | KV | MTP draft | When |
 |--------|---------|----|-----------|------|
-| **MTP3 + Q4/F16/96k (recommended)** | 96k | **f16** | **Q4_0 MTP, n=3** | Default / production (v0.3.0 + oneDNN/XMX, `GGML_SYCL_FA_ONEDNN=1`) |
-| MTP4 + Q8/128k | 128k | **q8_0** | Q8_0 MTP, n=4 | Prior production (full 128k); superseded by DNN/XMX |
-| MTP3 + Q8/128k (v0.2.0) | 128k | **q8_0** | Q8_0 MTP, n=3 | Prior production (superseded by MTP4) |
-| MTP3 + 96k (legacy) | 96k | **q8_0** | BF16 MTP, n=3 | Pre-upgrade safe config |
-| MTP4 + 128k (max, old stack) | 128k | **q8_0** | BF16 MTP, n=4 | When the full 128k window was required pre-upgrade |
-| no-draft + 128k | 128k | f16 | none | The stable agent "workhorse" when speculation isn't worth it |
+| **MTP3 + q8_0/128k — GOLDEN, current production** | 131072 | **q8_0** | **Q8_0 MTP, n=3** | Default. v0.4.1 `:stable`, oneDNN/XMX; full suite pass 2026-09-14 |
+| MTP3 + q8_0/128k (v0.4.0) | 131072 | q8_0 | Q8_0 MTP, n=3 | Prior production; on par with v0.4.1 |
+| MTP3 + f16/96k + Q4_0 draft (v0.3.0 + oneDNN/XMX) | 98304 | f16 | Q4_0 MTP, n=3 | Earlier recommendation; native (no-dequant) XMX path, ~1.5 GB VRAM margin |
+| MTP4 + q8_0/128k | 131072 | q8_0 | Q8_0 MTP, n=4 | Only for short one-shot generation — position-4 acceptance collapses on agent workloads |
+| MTP3 + 96k (legacy) | 98304 | q8_0 | BF16 MTP, n=3 | Pre-upgrade safe config |
+| no-draft + 128k | 131072 | f16 | none | The stable agent "workhorse" when speculation isn't worth it |
 
-Full details and memory footprints in [`benchmark/configs/`](./benchmark/configs/). Also:
+Full details, memory footprints and measured numbers in [`benchmark/configs/`](./benchmark/configs/); the golden config record is [`benchmark/configs/golden-v041-q8-128k-mtp3.md`](./benchmark/configs/golden-v041-q8-128k-mtp3.md). Also:
 
 - `--n-gpu-layers 999` (offload everything).
 - `--flash-attn on` (SYCL backend supports it).
-- **q8_0 KV** is required for MTP + 96k–128k (f16 KV + MTP + large ctx OOMs). f16 KV is fine for short contexts.
-- **Use a high-quality MTP draft (Q8_0 on the upgrade stack; BF16 on the old stack)** — a low-acceptance 2B draft is a net slowdown.
+- **q8_0 KV is what makes MTP + a full 128k window fit on one card** (f16 KV at that size plus a speculative draft exhausts 32 GB). f16 KV is the native, no-dequant path for the oneDNN SDPA kernel and is fine at ≤96k.
+- **Use a high-quality MTP draft (Q8_0)** — a low-acceptance 2B draft is a net slowdown.
+- **Turn thinking off at both layers**: `--reasoning off` plus `--chat-template-kwargs '{"enable_thinking":false,"preserve_thinking":false}'`.
 
 ### Recommended sampling parameters for Qwen3.8-27B (official, 2026-08)
 

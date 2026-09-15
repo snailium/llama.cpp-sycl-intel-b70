@@ -17,7 +17,9 @@ benchmark/
 
 ## Recommended configuration
 
-The current recommended default is **F16 KV + 96k + Q4_0 MTP draft, MTP3/0.1 + Q8 mmproj**, on the **v0.3.0 + oneDNN/XMX** image ([config](./configs/v030-f16-96k-dnn-mtp3-q4.md)) — XMX prefill ≈392 t/s, decode ≈26.2 t/s, draft acc 0.573, +1.5GB VRAM headroom. The `examples/qwen27b-server.sh` launcher matches this config.
+The current golden (production) configuration is **q8_0 KV + 131072 ctx + MTP3 with a Q8_0 MTP draft + Q8_0 mmproj** on the **v0.4.1** image ([config](./configs/golden-v041-q8-128k-mtp3.md), [canonical description](../docs/GOLDEN-CONFIG.md)) — text prefill 470–490 tok/s, decode 41–46 tok/s short-context, draft acceptance 0.53–0.90. The `examples/qwen27b-server.sh` launcher matches this config.
+
+> The earlier v0.3.0-era recommendation (F16 KV + 96k + Q4_0 MTP draft on the oneDNN/XMX image — XMX prefill ≈392 t/s, decode ≈26.2 t/s, +1.5 GB VRAM headroom) is **superseded**; it is kept as history in [`configs/v030-f16-96k-dnn-mtp3-q4.md`](./configs/v030-f16-96k-dnn-mtp3-q4.md).
 
 > The **Q8 (not BF16) MTP draft is required on the upgrade stack at 128k** — the BF16 draft's speculative buffer reserve crashes the 32 GB card (`Failed to allocate physical memory`). Quantizing to Q8 frees ~1.5 GB and enables 128k with no acceptance loss.
 
@@ -48,6 +50,8 @@ Two rules drive every recommendation:
 | 2026-08-25 | [v030-u26-mtp4-q8](./results/2026-08-25-v030-u26-mtp4-q8.md) | v030-u26-mtp4-q8 | **Full suite (T1–T5 + V1–V3) pass**, 0 crashes, MTP4 acc 0.57; promoted to `:stable`/`:v0.3.0` |
 | 2026-08-25 | [v030-f16-96k-dnn-mtp4](./results/2026-08-25-v030-f16-96k-dnn-mtp4.md) | v030-f16-96k-dnn-mtp4 | DNN/XMX prefill **430 t/s vs 212**, decode 22.2; VRAM edge (R1) |
 | 2026-08-25 | [v030-f16-96k-dnn-mtp3-q4](./results/2026-08-25-v030-f16-96k-dnn-mtp3-q4.md) | v030-f16-96k-dnn-mtp3-q4 | DNN/XMX **stable**: prefill 392, decode 26.2, acc 0.573, +1.5GB VRAM (R2) |
+| 2026-09-04 | [v040-stable](./results/2026-09-04-v040-stable.md) | mtp3-q8-128k (golden shape) | **Full suite pass**, 0 crashes; v0.4.0 promoted to `:stable` |
+| 2026-09-14 | [v041-stable](./results/2026-09-14-v041-stable.md) | [golden-v041-q8-128k-mtp3](./configs/golden-v041-q8-128k-mtp3.md) | **Full suite pass (GOLDEN)**, 0 crashes; decode 41.4/46.2/20.82/37.57/33.93, v0.4.1 promoted to `:stable` |
 
 ## Incidents
 
@@ -57,10 +61,11 @@ Two rules drive every recommendation:
 
 ## Headline numbers (for quick reference)
 
-- **Recommended decode:** ≈ 24–28 t/s single-stream (MTP3/Q8/128K), ≈8% over the ≈23.2 t/s no-draft baseline; **TTFT ≈ 0.88 s** (MTP4/128K, old stack).
-- **Long-chain draft acceptance:** 0.50–0.85 (BF16 MTP) vs 0.31–0.50 (2B draft).
+- **Golden decode:** 41–46 tok/s single-stream at short context, ≈21 tok/s at deep context (q8_0 KV + MTP3 + Q8_0 draft, 128k); **TTFT** 0.65–0.67 s on short prompts, 3.6–3.9 s median on agent tasks.
+- **Golden prefill (fill):** 470–490 tok/s weighted on agent tasks (570–600 in bursts) via the oneDNN/XMX SDPA path.
+- **Long-chain draft acceptance:** 0.53–0.90 depending on task shape (MTP3 with a Q8_0 draft).
 - **Full agent suite:** llama.cpp is the **only B70 backend that completes all tasks** — vLLM-MTP crashes on T5.
-- **Vision:** quality on par with a dual-3060 27B, but much slower (visual prefill bottleneck).
+- **Vision:** quality on par with the earlier dual-GPU baseline, but much slower (visual prefill bottleneck: 30–60 tok/s).
 
 ## Adding a new benchmark
 
