@@ -21,3 +21,6 @@ models/
 
 # Logs
 *.log
+
+# local docker CLI state (harness/promote) — never commit
+.docker-home/
