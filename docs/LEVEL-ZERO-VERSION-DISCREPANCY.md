@@ -62,33 +62,42 @@ base image:  libze1:amd64      1.28.6-1~26.04~ppa1
 loader file: libze_loader.so.1.28.6   (Jun 16 21:12)
 ```
 
-The Dockerfile then does two things that fight each other:
-
-1. **`.devops/intel.Dockerfile` line ~72** downloads and installs the CI-selected Level Zero debs:
-   ```dockerfile
-   (wget ... /libze1_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb ...) && \
-   (wget ... /libze-dev_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb ...) && \
-   apt-get -o Dpkg::Options::="--force-overwrite" install -y ./level-zero.deb ./level-zero-devel.deb
-   ```
-   The assets exist (v1.32.0 ships both `u22.04` and `u24.04`), so this step **succeeds**.
-
-2. **line ~174** installs the oneAPI userspace, whose dependency chain reaches the distro `libze1`:
-   ```dockerfile
-   apt-get install -y libgomp1 curl ffmpeg intel-oneapi-dnnl && ...
-   ```
-   `intel-oneapi-dnnl` → `intel-oneapi-compiler-dpcpp-cpp-runtime-2026.1` → … → a `libze1`
-   dependency, and apt resolves that against the **base image's already-satisfied
-   `libze1 1.28.6`**, which wins.
-
-The dpkg log in the final image shows `libze1` being configured **exactly once**, from the base:
+The Dockerfile installs the CI-selected Level Zero debs in the **build** stage (which compiles the
+AOT kernels), and the built image's `libze1` is configured **exactly once**, from the base image:
 
 ```
 2026-07-24 13:27:51 install libze1:amd64 <none> 1.28.6-1~26.04~ppa1
 2026-07-24 13:27:52 status installed libze1:amd64 1.28.6-1~26.04~ppa1
 ```
 
-There is no second install of a 1.32.0 package. And `apt-cache policy libze1` in the final image
-reports only `/var/lib/dpkg/status` as the source — no repository, no upgrade path.
+There is no second install of a 1.32.0 package. `apt-cache policy libze1` in the final image reports
+only `/var/lib/dpkg/status` as the source — no repository, no upgrade path.
+
+### Correction: the earlier "oneDNN displaces the pin" explanation was wrong
+
+An earlier revision of this document claimed the `intel-oneapi-dnnl` install re-resolved its
+dependency chain against the base image's `libze1` and displaced the pinned copy. **That is not what
+happens**, and it was disproved by direct experiment:
+
+1. Pinning Level Zero 1.32.0 *before* installing `intel-oneapi-dnnl` survives intact —
+   `libze1=1.32.0` and `libze_loader.so.1.32.0` both before and after. oneDNN does not downgrade it.
+   (There is also no repository offering `libze1` at all — `apt-cache madison libze1` is empty and
+   `apt-cache policy` lists only `/var/lib/dpkg/status`, so apt has nothing to resolve it *to*.)
+2. The real reason is much simpler: **the `base` stage never had a Level Zero install step.**
+   In the `dev` branch Dockerfile, `FROM … AS base` contains just two `RUN`s — the neo driver debs and
+   the `intel-oneapi-dnnl` install. The Level Zero pin lives **only in the `build` stage**, where it
+   exists for AOT compilation (`ocloc`).
+
+So nothing was ever "overwritten". The final image inherited the base image's loader by omission,
+while the issue body reported the *build* stage's pin. The two were never the same thing.
+
+This also explains a long-standing note in the project's own knowledge base:
+
+> base 不需要 libze1/libze-dev (loader 用 base 自带 1.28.6 配新驱动 26.31 实测可用)
+
+That was an accurate observation of the *behaviour* ("the base's loader works"), recorded without
+noticing that it was a description of an unintended omission rather than a deliberate choice. The
+loader was never consciously selected.
 
 ### Hash proof that the shipped loader is the base image's
 
@@ -190,16 +199,25 @@ one.** It matters because:
 
 ## Fixes (applied 2026-09-20)
 
-Three layers, all implemented:
+The design principle: **do not rely on install order.** Any apt operation can leave a component at a
+version other than the one compute-runtime paired it with — including, as here, an omission rather
+than an overwrite. So the image now *verifies the whole paired set after all installs finish*, and
+repairs whatever drifted.
 
-### 1. Install the pin last, in the stage that needs it — `DONE`
+### 1. Post-install pairing reconciliation — `DONE`
 
-`.devops/intel.Dockerfile`: the runtime stage's `intel-oneapi-dnnl` install is what displaced the pin,
-so the pinned Level Zero `libze1`/`libze-dev` debs are now re-installed **after** it, with
-`--allow-downgrades` (required because the pinned version may be older than what the dependency chain
-would otherwise select). The pin now wins by construction rather than by ordering luck.
+`.devops/intel.Dockerfile`, in the `base` stage after every other install: check whether
+`libze_loader.so.${LEVEL_ZERO_VERSION}` exists. If not, report what *is* present and fetch the paired
+version; then assert again and fail the build with a diagnostic if it still is not satisfied. This
+handles both failure modes — displacement *and* omission — without depending on which line runs last.
 
-Verified by building the `base` stage before and after:
+Verified against the real defect, building the `base` stage on the unfixed tree:
+
+```
+--- reconciling paired dependency versions ---
+level-zero loader 1.32.0 absent (have: libze_loader.so.1.28.6); will install the paired version
+OK: level-zero loader 1.32.0 present
+```
 
 | | before | after |
 |---|---|---|
@@ -208,20 +226,29 @@ Verified by building the `base` stage before and after:
 | loader bytes / hash | 1773224 / `d08cf213…` | 1036264 / `93661120…` (the real v1.32.0) |
 
 The driver (`libze_intel_gpu.so.1.17.39758`) and oneDNN (`libdnnl.so.3`) are unaffected — confirmed in
-the rebuilt base image.
+the rebuilt base image. The step is **idempotent**: on an image that already satisfies the pair it
+prints `ALREADY-SATISFIED` and performs no download, so repeated builds stay fast.
 
-### 2. Fail the build if the pin is not satisfied — `DONE`
+`--allow-downgrades` is required, because the paired version may be older than what the base image
+ships (the same reason the driver-deb step already needed it for gmmlib).
 
-The same Dockerfile block asserts `/usr/lib/x86_64-linux-gnu/libze_loader.so.${LEVEL_ZERO_VERSION}`
-exists and aborts with a diagnostic (expected vs. installed, plus an `ls` of what is actually there).
-Tested both ways:
+### 2. Check the rest of the paired set — `DONE`
 
-- Built with a bogus pin (`9.9.9`) → build fails loudly.
-- Simulated displacement on a good image (remove + reinstall `libze1`) → the guard fires with
-  `GUARD FIRED: expected loader 1.32.0 is gone`, exit 1.
+The same stage verifies the other three components compute-runtime pins, and fails the build on
+mismatch:
 
-Without this, the class of bug is silent by definition: the image builds green and ships the wrong
-library.
+```
+compute-runtime : 26.35.39758.10-0  (paired: 26.35.39758.10)
+IGC             : 2.41.5  (paired: 2.41.5)
+gmmlib          : 22.10.0  (paired: 22.10.0)
+OK: all paired components verified
+```
+
+These three are installed by the driver-deb step and have not been observed to drift, so this is a
+*check*, not a repair — but a silent divergence in any of them is exactly the class of bug this
+document exists because of. Note the version-string subtlety that cost one build iteration: `IGC_VERSION_FULL`
+(`2_2.41.5+22716`) is an *asset filename* fragment and is **not** the installed package version
+(`2.41.5`), so the check compares against `IGC_VERSION` with the leading `v` stripped.
 
 ### 3. Report the version that is really in the image — `DONE`
 
@@ -235,13 +262,15 @@ them into the issue body as a new line:
 **Image actually contains**: libze1 `1.32.0`, loader `libze_loader.so.1.32.0`
 ```
 
-The issue body can no longer claim a version the image does not contain. The guard was unit-tested
-against five cases: correct match, the original-bug mismatch, empty output, a future version, and a
-prefix-substring trap (`1.3` vs `1.32.0`, which correctly does *not* false-pass).
+The issue body can no longer claim a version the image does not contain — which is precisely how this
+whole discrepancy went unnoticed: the body reported the *build* stage's pin while the image inherited
+the *base* stage's loader. The guard was unit-tested against five cases: correct match, the
+original-bug mismatch, empty output, a future version, and a prefix-substring trap (`1.3` vs `1.32.0`,
+which correctly does *not* false-pass).
 
-An image digest is also written to `/etc/level-zero-version` inside the image
-(`BUILT_LIBZE1_VERSION` / `BUILT_LIBZE_LOADER`) so any pulled image can be interrogated later without
-re-deriving anything.
+All five paired versions are also written to `/etc/intel-stack-versions` inside the image
+(`PAIRED_COMPUTE_RUNTIME` / `PAIRED_IGC` / `PAIRED_GMMLIB` / `PAIRED_LIBZE1` / `PAIRED_LIBZE_LOADER`),
+so any pulled image can be interrogated later without re-deriving anything.
 
 ### Not done, and why
 
