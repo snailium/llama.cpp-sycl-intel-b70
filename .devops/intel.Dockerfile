@@ -137,6 +137,8 @@ ARG IGC_VERSION_FULL
 ARG COMPUTE_RUNTIME_VERSION
 ARG COMPUTE_RUNTIME_VERSION_FULL
 ARG IGDGMM_VERSION
+ARG LEVEL_ZERO_VERSION
+ARG LEVEL_ZERO_UBUNTU_VERSION
 
 ARG BUILD_DATE=N/A
 ARG APP_VERSION=N/A
@@ -179,6 +181,45 @@ RUN apt-get update \
     && rm -rf /tmp/* /var/tmp/* \
     && find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete \
     && find /var/cache -type f -delete
+
+# Re-assert the pinned Level Zero loader AFTER the oneAPI install above.
+#
+# Why this exists: the apt-get on the line before pulls in a oneAPI dependency chain
+# that resolves against the base image's PRE-EXISTING `libze1` (the
+# intel/deep-learning-essentials base ships Level Zero 1.28.6). Versioned package
+# deps like `libze1 (>= 1.28)` are satisfied by that older package, so apt keeps it
+# and the loader that the build stage explicitly pinned is silently displaced.
+# Observed: built images shipped libze_loader.so.1.28.6 while CI reported L0 1.32.0.
+# See docs/LEVEL-ZERO-VERSION-DISCREPANCY.md.
+#
+# Installing the pin here, last, makes the pinned version win by construction, and
+# the assertion below turns any future regression into a build failure instead of a
+# silently wrong image. `--allow-downgrades` is required because the pinned version
+# may be older than what the dependency chain would otherwise select.
+RUN apt-get update \
+    && cd /tmp \
+    && (wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze1_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-runtime.deb \
+      || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-runtime.deb) \
+    && (wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze-dev_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-devel.deb \
+      || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero-devel_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-devel.deb) \
+    && apt-get -o Dpkg::Options::="--force-overwrite" --allow-downgrades install -y ./l0-runtime.deb ./l0-devel.deb \
+    && rm -f /tmp/l0-runtime.deb /tmp/l0-devel.deb \
+    && ldconfig \
+    && INSTALLED=$(dpkg-query -W -f='${Version}' libze1) \
+    && echo "libze1 installed version: ${INSTALLED}" \
+    && if [ ! -e "/usr/lib/x86_64-linux-gnu/libze_loader.so.${LEVEL_ZERO_VERSION}" ]; then \
+         echo "ERROR: Level Zero pin NOT satisfied." >&2; \
+         echo "  expected: /usr/lib/x86_64-linux-gnu/libze_loader.so.${LEVEL_ZERO_VERSION}" >&2; \
+         echo "  installed libze1: ${INSTALLED}" >&2; \
+         ls -l /usr/lib/x86_64-linux-gnu/libze_loader.so* >&2; \
+         exit 1; \
+       fi
+
+# Record what the image actually contains, so build logs and issue bodies can be
+# compared against reality rather than against what CI intended to install.
+RUN echo "BUILT_LIBZE1_VERSION=$(dpkg-query -W -f='${Version}' libze1)" > /etc/level-zero-version \
+    && echo "BUILT_LIBZE_LOADER=$(readlink -f /usr/lib/x86_64-linux-gnu/libze_loader.so.1 | xargs basename)" >> /etc/level-zero-version \
+    && cat /etc/level-zero-version
 
 ### Full (conversion + server + cli)
 FROM base AS full

@@ -2,7 +2,7 @@
 
 Investigated 2026-09-20, triggered by issue [#18](https://github.com/snailium/llama.cpp-sycl-intel-b70/issues/18) §7.2
 and its recurrence in issue [#19](https://github.com/snailium/llama.cpp-sycl-intel-b70/issues/19).
-**Status: root-caused, mechanism proven by hash. A real packaging bug, but a benign one.**
+**Status: root-caused, mechanism proven by hash, CI fixed.** A real packaging bug, but a benign one.
 
 ## The symptom
 
@@ -188,21 +188,74 @@ one.** It matters because:
 - if a *future* Level Zero release ever carried a fix that only exists in the loader, CI could
   "pin" it and the image would silently ignore it — the failure would be invisible.
 
-## Fixes (in order of preference)
+## Fixes (applied 2026-09-20)
 
-1. **Stop double-installing.** The base image already provides Level Zero. Either drop the
-   `libze1`/`libze-dev` download step entirely and state the base's version, or pin the base image's
-   L0 and stop deriving it from compute-runtime. The current arrangement installs a version and then
-   lets apt silently undo it.
-2. **Report what is in the image, not what CI intended.** Add a build step that runs
-   `dpkg-query -W -f='${Version}' libze1` (and reads the loader soname) and emit *that* into the
-   issue body. This is cheap and makes the class of bug self-announcing.
-3. **Fail loudly if the pin is not satisfied.** If CI derives a Level Zero version, assert after
-   install that `libze_loader.so.$VERSION` exists; `exit 1` otherwise. A "pinned" dependency that
-   silently resolves to a different version is worse than an unpinned one.
+Three layers, all implemented:
 
-Recommended minimum: **(2)**, because it is a few lines and protects every future reader; **(1)** is
-the real cleanup; **(3)** is what prevents recurrence of the silent-override class.
+### 1. Install the pin last, in the stage that needs it — `DONE`
+
+`.devops/intel.Dockerfile`: the runtime stage's `intel-oneapi-dnnl` install is what displaced the pin,
+so the pinned Level Zero `libze1`/`libze-dev` debs are now re-installed **after** it, with
+`--allow-downgrades` (required because the pinned version may be older than what the dependency chain
+would otherwise select). The pin now wins by construction rather than by ordering luck.
+
+Verified by building the `base` stage before and after:
+
+| | before | after |
+|---|---|---|
+| `dpkg -l libze1` | `1.28.6-1~26.04~ppa1` | **`1.32.0`** |
+| `libze_loader.so.1` → | `libze_loader.so.1.28.6` | **`libze_loader.so.1.32.0`** |
+| loader bytes / hash | 1773224 / `d08cf213…` | 1036264 / `93661120…` (the real v1.32.0) |
+
+The driver (`libze_intel_gpu.so.1.17.39758`) and oneDNN (`libdnnl.so.3`) are unaffected — confirmed in
+the rebuilt base image.
+
+### 2. Fail the build if the pin is not satisfied — `DONE`
+
+The same Dockerfile block asserts `/usr/lib/x86_64-linux-gnu/libze_loader.so.${LEVEL_ZERO_VERSION}`
+exists and aborts with a diagnostic (expected vs. installed, plus an `ls` of what is actually there).
+Tested both ways:
+
+- Built with a bogus pin (`9.9.9`) → build fails loudly.
+- Simulated displacement on a good image (remove + reinstall `libze1`) → the guard fires with
+  `GUARD FIRED: expected loader 1.32.0 is gone`, exit 1.
+
+Without this, the class of bug is silent by definition: the image builds green and ships the wrong
+library.
+
+### 3. Report the version that is really in the image — `DONE`
+
+`build-dev.yml` and `build-stable.yml` gain a **Verify built image versions** step that runs between
+the push and the issue creation. It reads `libze1`'s package version and the loader soname *out of the
+built image*, echoes them into the build log, fails the job if they do not match the pin, and feeds
+them into the issue body as a new line:
+
+```
+**Level Zero**: 1.32.0
+**Image actually contains**: libze1 `1.32.0`, loader `libze_loader.so.1.32.0`
+```
+
+The issue body can no longer claim a version the image does not contain. The guard was unit-tested
+against five cases: correct match, the original-bug mismatch, empty output, a future version, and a
+prefix-substring trap (`1.3` vs `1.32.0`, which correctly does *not* false-pass).
+
+An image digest is also written to `/etc/level-zero-version` inside the image
+(`BUILT_LIBZE1_VERSION` / `BUILT_LIBZE_LOADER`) so any pulled image can be interrogated later without
+re-deriving anything.
+
+### Not done, and why
+
+Dropping the duplicate download entirely (fix option 1 in the original write-up) would be the cleanest
+end state, but the runtime stage genuinely needs `intel-oneapi-dnnl` — it is **not** inherited from the
+base image (verified) — so the oneAPI install cannot simply be removed. Suppressing the dependency
+chain that drags in `libze1` would mean fighting apt's resolver for a library that only two
+non-inference consumers link (`libpti.so`, `libmpi_ze_hooks.so`; the UR adapter and `libsycl.so.9`
+both resolve L0 dynamically via `dlopen` and need no link-time dependency). Installing the pin last
+achieves the same guarantee with far less risk, so that is what shipped.
+
+**These fixes change what future images contain, not any already-built image.** The promoted `stable`
+digest `sha256:d7f30320…` and the dev artifact `sha256:4dc70c03…` both still carry loader 1.28.6, and —
+per the equivalence measurement above — neither needs to be rebuilt or re-tested for that reason.
 
 ## Reference: current pairing
 
