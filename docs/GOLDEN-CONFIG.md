@@ -4,7 +4,7 @@
 > repository is evidence, history, or experiment. If a document disagrees with this file, this
 > file wins (and the other document should be dated/superseded).
 >
-> As of **2026-09-14** (llama.cpp **v0.4.1**, promoted from issue #17).
+> As of **2026-09-20** (llama.cpp **v0.4.1**, promoted from issue #18).
 > Host placeholders are used on purpose: this repo is public — **never commit internal IPs,
 > usernames, or absolute host paths here.**
 
@@ -12,11 +12,11 @@
 
 | Item | Value |
 |---|---|
-| Image (pinned) | `ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:server-c26.31.39395.13-v0.4.1-20260914-2252` |
+| Image (pinned) | `ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:server-c26.35.39758.10-v0.4.1` |
 | Image (floating) | `…:stable` |
-| Digest (both tags) | `sha256:5af1e2290fc53930a5f323ac5d26dd9faa9737109336ecdc18aee085b20ef25b` |
-| llama.cpp | v0.4.1 (upstream tag; base build number `b10964`) |
-| Intel stack | compute-runtime `26.31.39395.13` / IGC `v2.40.13` / Level Zero `1.32.0` |
+| Digest (both tags) | `sha256:d7f303202d55357da11e3e6f0c7dae3bed6f381dbeb930ead4208d0fcb1742f5` |
+| llama.cpp | v0.4.1 (upstream tag; build commit `b29c606`) |
+| Intel stack | compute-runtime `26.35.39758.10` / IGC `v2.41.5` / Level Zero loader `1.28.6` |
 | oneDNN / XMX | `-DGGML_SYCL_DNN=ON`; `libdnnl.so.3` linked; runtime gate `GGML_SYCL_FA_ONEDNN` **defaults to 1** |
 | Entrypoint | `/app/llama-server` (image default — **never override it**) |
 
@@ -127,7 +127,9 @@ Model load takes ~2 minutes (17.7 GB main + draft + mmproj) before `/v1/models` 
 
 ## 6. Expected performance (v0.4.1 full suite, golden config)
 
-Measured 2026-09-14 on a single Arc Pro B70 with the exact configuration above.
+Measured 2026-09-14 on a single Arc Pro B70 with the exact configuration above, on the
+compute-runtime `26.31.39395.13` artifact. Superseded runs on `26.35.39758.10` (issues #18, #19)
+found these numbers **unchanged within noise** — see each report's comparison table.
 Full report: [`benchmark/results/2026-09-14-v041-stable.md`](../benchmark/results/2026-09-14-v041-stable.md).
 
 | Task | fill (tok/s) | TTFT med/mean | decode (tok/s) | draft acc |
@@ -167,8 +169,9 @@ Reading the numbers:
    card (VRAM), so a test image must replace it — not run beside it.
 3. **Promote by digest, never by moving a tag by hand** — see the GHCR promote procedure in the
    `gh-credentials-push` skill.
-4. **Rollback point**: previous stable digest `sha256:bdc56d57a39c4fed73641457f8787c9abcbe7390f33cbda33d5bc68561b8fd4f`
-   (v0.4.0). Roll back by stopping the current container and starting one from that digest.
+4. **Rollback point**: previous stable digest `sha256:5af1e2290fc53930a5f323ac5d26dd9faa9737109336ecdc18aee085b20ef25b`
+   (compute-runtime `26.31.39395.13`, the last pre-driver-bump stable). Roll back by stopping the
+   current container and starting one from that digest.
 5. Any configuration change gets its own dated entry below, and any superseded document gets a
    `Superseded by …` line at the top.
 
@@ -179,9 +182,13 @@ Reading the numbers:
 | [`examples/qwen27b-server.sh`](../examples/qwen27b-server.sh) | bare-metal launcher mirroring §3 exactly |
 | [`docker-compose.yml`](../docker-compose.yml) | container definition mirroring §2 + §3 |
 | [`benchmark/configs/golden-v041-q8-128k-mtp3.md`](../benchmark/configs/golden-v041-q8-128k-mtp3.md) | config record with the measured numbers |
+| [`LEVEL-ZERO-VERSION-DISCREPANCY.md`](LEVEL-ZERO-VERSION-DISCREPANCY.md) | why the image ships L0 1.28.6 while CI reports 1.32.0 |
 
 ## Change log
 
 | Date | Change |
 |---|---|
 | 2026-09-14 | Golden established: v0.4.1 (`:stable`), q8_0 KV / 128k / MTP3 + Q8_0 draft, reasoning off. Promoted from issue #17 after a full 3-vision + 5-text pass. Replaces the v0.3.0-era "F16 KV + 96k + Q4_0 MTP" recommendation (kept below as history). |
+| 2026-09-20 | `:stable` re-pointed to the issue-#18 artifact (compute-runtime `26.35.39758.10`, IGC `v2.41.5`, digest `sha256:d7f30320…`). Image/digest/§6 provenance rows updated to match what production actually serves — they had drifted a release behind. |
+| 2026-09-20 | Level Zero recorded as **loader `1.28.6`**, not the `1.32.0` CI reports. The image is built on a base that already ships L0 1.28.6, and the oneAPI install in the same stage displaces the CI-pinned 1.32.0 packages. Driver (`26.35.39758.10`) and IGC (`2.41.5`) are unaffected. Root cause and evidence: [`LEVEL-ZERO-VERSION-DISCREPANCY.md`](LEVEL-ZERO-VERSION-DISCREPANCY.md). |
+| 2026-09-20 | Issue #19 dev candidate (`60081bb`, digest `sha256:4dc70c03…`) passed the full battery 8/8 with zero crashes; **not** promoted to `:stable` (parity, no stated reason for the llama.cpp bump). Published as `:server-dev` + `:server-dev-b11046-c26.35.39758.10`. Report: [`benchmark/results/2026-09-20-issue19-b11046-dev.md`](../benchmark/results/2026-09-20-issue19-b11046-dev.md). |
