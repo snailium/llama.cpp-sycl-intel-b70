@@ -26,7 +26,31 @@ Before anything else, call the `skill` tool for these, in order:
 Do not start testing before reading them. They contain the exact commands and the
 failure signatures that make results interpretable.
 
-## 1. Identify what you are testing
+## 1. Verify you can reach the GPU host - BEFORE anything else
+
+**This Session does not run on the machine that has the card.** It runs on the
+control host (`PC-DEV`, `.90`), which has no discrete GPU, no `/dev/dri` and no
+`/models`. The Arc B70, the model directory and every production container live on
+`home-ai` (`.101`).
+
+Run this first and confirm it prints `hostname : home-ai`:
+
+```bash
+scripts/on-gpu.sh --check
+```
+
+Every GPU command in the rest of this procedure goes through that wrapper, for
+example `scripts/on-gpu.sh 'docker ps -a'`.
+
+**If the check fails, STOP and report BLOCKED.** Do not run the suite locally and
+do not fabricate numbers.
+
+> ⚠️ **Never identify the host by port.** `.90` listens on **18080** - the same port
+> `b70-sycl` uses on `.101` - but that listener is an unrelated container. An agent
+> that checks `ss -ltn` and assumes "the GPU is here" will fail confusingly at the
+> first `/dev/dri` read.
+
+## 2. Identify what you are testing
 
 - Read `docs/GOLDEN-CONFIG.md`. Every parameter comes from there; the only thing
   the issue changes is the image tag.
@@ -38,7 +62,7 @@ failure signatures that make results interpretable.
   is a bigger change than a llama.cpp build bump and deserves its own line in the
   report.
 
-## 2. Free the B70 deliberately
+## 3. Free the B70 deliberately
 
 A single Arc B70 cannot host two inference containers.
 
@@ -51,7 +75,7 @@ A single Arc B70 cannot host two inference containers.
   `/dev/dri` as a whole, so baseline the other container's `RestartCount` before the
   run and re-check after — a value that grew means the run leaked outside its card.
 
-## 3. Run the full suite
+## 4. Run the full suite
 
 - Use the isolated `dsh-container` harness. Never point a test at the production
   `~/.dsh`; every run gets its own `DSH_HOME`.
@@ -61,7 +85,7 @@ A single Arc B70 cannot host two inference containers.
 - Before each task, record `docker logs <container> | wc -l` as a window marker so
   the metrics parser reads exactly this task's log lines.
 
-## 4. Report per task
+## 5. Report per task
 
 For every task, give:
 
@@ -88,7 +112,7 @@ drops even though no kernel changed, and that is not a real regression.
 Do not extrapolate. Report only what you measured, and say explicitly which numbers
 you could not measure and why.
 
-## 5. Decide
+## 6. Decide
 
 - If the suite is fully green, say so and state the promote decision plainly.
 - If anything failed, describe the failure, keep the container for post-mortem, and
