@@ -182,44 +182,100 @@ RUN apt-get update \
     && find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete \
     && find /var/cache -type f -delete
 
-# Re-assert the pinned Level Zero loader AFTER the oneAPI install above.
+# ---------------------------------------------------------------------------
+# Post-install dependency-pairing reconciliation.
 #
-# Why this exists: the apt-get on the line before pulls in a oneAPI dependency chain
-# that resolves against the base image's PRE-EXISTING `libze1` (the
-# intel/deep-learning-essentials base ships Level Zero 1.28.6). Versioned package
-# deps like `libze1 (>= 1.28)` are satisfied by that older package, so apt keeps it
-# and the loader that the build stage explicitly pinned is silently displaced.
-# Observed: built images shipped libze_loader.so.1.28.6 while CI reported L0 1.32.0.
+# Every install above (driver debs, IGC, ocloc, and especially the oneAPI
+# `intel-oneapi-dnnl` chain) can silently leave a component at a DIFFERENT
+# version than the compute-runtime release paired it with. compute-runtime is
+# the single source of truth for the Intel stack: each of its releases lists the
+# exact IGC / level-zero / gmmlib revisions it was built against, and those
+# components do not version independently.
+#
+# Two distinct failure modes are handled here:
+#   1. A component is MISSING at the paired version because an earlier apt
+#      operation resolved a dependency against the base image's older copy.
+#   2. A stage simply never installed the paired version at all (this is what
+#      actually happened: the base stage had no level-zero install step, so the
+#      image shipped the oneAPI base image's bundled 1.28.6 while CI reported
+#      1.32.0 from the build stage's pin).
+#
+# Rather than relying on install ORDER (fragile: any later apt run can undo it),
+# verify at the end and repair what drifted. `--allow-downgrades` is required
+# because the paired version may be older than what the base image ships.
 # See docs/LEVEL-ZERO-VERSION-DISCREPANCY.md.
+RUN set -eux; \
+    L0_DIR=/usr/lib/x86_64-linux-gnu; \
+    NEEDED=0; \
+    echo "--- reconciling paired dependency versions ---"; \
+    if [ ! -e "${L0_DIR}/libze_loader.so.${LEVEL_ZERO_VERSION}" ]; then \
+      echo "level-zero loader ${LEVEL_ZERO_VERSION} absent (have: $(readlink -f ${L0_DIR}/libze_loader.so.1 | xargs -r basename)); will install the paired version"; \
+      NEEDED=1; \
+    else \
+      echo "level-zero loader ${LEVEL_ZERO_VERSION} already present"; \
+    fi; \
+    if [ "$NEEDED" = "1" ]; then \
+      cd /tmp; \
+      (wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze1_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-runtime.deb \
+        || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-runtime.deb); \
+      (wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze-dev_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-devel.deb \
+        || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero-devel_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-devel.deb); \
+      apt-get -o Dpkg::Options::="--force-overwrite" --allow-downgrades install -y ./l0-runtime.deb ./l0-devel.deb; \
+      rm -f /tmp/l0-runtime.deb /tmp/l0-devel.deb; \
+      ldconfig; \
+    fi; \
+    if [ ! -e "${L0_DIR}/libze_loader.so.${LEVEL_ZERO_VERSION}" ]; then \
+      echo "ERROR: paired level-zero loader NOT satisfied after reconciliation." >&2; \
+      echo "  expected: ${L0_DIR}/libze_loader.so.${LEVEL_ZERO_VERSION}" >&2; \
+      echo "  libze1:   $(dpkg-query -W -f='${Version}' libze1 2>/dev/null || echo '<not installed>')" >&2; \
+      ls -l ${L0_DIR}/libze_loader.so* >&2; \
+      exit 1; \
+    fi; \
+    echo "OK: level-zero loader ${LEVEL_ZERO_VERSION} present"
+
+# Verify the other paired components too. These are installed by the driver-deb
+# step above and have not been observed to drift, so this is a CHECK, not a
+# repair: if one ever drifts, fail the build loudly rather than ship a stack the
+# upstream pairing does not describe.
 #
-# Installing the pin here, last, makes the pinned version win by construction, and
-# the assertion below turns any future regression into a build failure instead of a
-# silently wrong image. `--allow-downgrades` is required because the pinned version
-# may be older than what the dependency chain would otherwise select.
-RUN apt-get update \
-    && cd /tmp \
-    && (wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze1_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-runtime.deb \
-      || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-runtime.deb) \
-    && (wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/libze-dev_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-devel.deb \
-      || wget -q "https://github.com/oneapi-src/level-zero/releases/download/v${LEVEL_ZERO_VERSION}/level-zero-devel_${LEVEL_ZERO_VERSION}%2B${LEVEL_ZERO_UBUNTU_VERSION}_amd64.deb" -O l0-devel.deb) \
-    && apt-get -o Dpkg::Options::="--force-overwrite" --allow-downgrades install -y ./l0-runtime.deb ./l0-devel.deb \
-    && rm -f /tmp/l0-runtime.deb /tmp/l0-devel.deb \
-    && ldconfig \
-    && INSTALLED=$(dpkg-query -W -f='${Version}' libze1) \
-    && echo "libze1 installed version: ${INSTALLED}" \
-    && if [ ! -e "/usr/lib/x86_64-linux-gnu/libze_loader.so.${LEVEL_ZERO_VERSION}" ]; then \
-         echo "ERROR: Level Zero pin NOT satisfied." >&2; \
-         echo "  expected: /usr/lib/x86_64-linux-gnu/libze_loader.so.${LEVEL_ZERO_VERSION}" >&2; \
-         echo "  installed libze1: ${INSTALLED}" >&2; \
-         ls -l /usr/lib/x86_64-linux-gnu/libze_loader.so* >&2; \
-         exit 1; \
-       fi
+# Note on version strings: IGC_VERSION_FULL is the *asset filename* fragment
+# (e.g. "2_2.41.5+22716" for intel-igc-core-2_2.41.5+22716_amd64.deb), which is
+# not the installed package version. IGC_VERSION is the upstream tag (v2.41.5);
+# the package reports the bare "2.41.5". Compare against the version, not the
+# filename fragment.
+RUN set -eux; \
+    echo "--- verifying paired components ---"; \
+    IGC_EXPECTED=$(echo "${IGC_VERSION}" | sed -e 's/^v//'); \
+    GOT_IGC=$(dpkg-query -W -f='${Version}' intel-igc-core-2 2>/dev/null || echo MISSING); \
+    GOT_GMM=$(dpkg-query -W -f='${Version}' libigdgmm12 2>/dev/null || echo MISSING); \
+    GOT_GPU=$(dpkg-query -W -f='${Version}' libze-intel-gpu1 2>/dev/null || echo MISSING); \
+    echo "compute-runtime : ${GOT_GPU}  (paired: ${COMPUTE_RUNTIME_VERSION})"; \
+    echo "IGC             : ${GOT_IGC}  (paired: ${IGC_EXPECTED})"; \
+    echo "gmmlib          : ${GOT_GMM}  (paired: ${IGDGMM_VERSION})"; \
+    case "$GOT_IGC" in \
+      "${IGC_EXPECTED}"*) ;; \
+      *) echo "ERROR: IGC ${IGC_EXPECTED} expected, found ${GOT_IGC}" >&2; exit 1 ;; \
+    esac; \
+    case "$GOT_GMM" in \
+      "${IGDGMM_VERSION}"*) ;; \
+      *) echo "ERROR: gmmlib ${IGDGMM_VERSION} expected, found ${GOT_GMM}" >&2; exit 1 ;; \
+    esac; \
+    case "$GOT_GPU" in \
+      "${COMPUTE_RUNTIME_VERSION}"*) ;; \
+      *) echo "ERROR: compute-runtime ${COMPUTE_RUNTIME_VERSION} expected, found ${GOT_GPU}" >&2; exit 1 ;; \
+    esac; \
+    echo "OK: all paired components verified"
 
 # Record what the image actually contains, so build logs and issue bodies can be
 # compared against reality rather than against what CI intended to install.
-RUN echo "BUILT_LIBZE1_VERSION=$(dpkg-query -W -f='${Version}' libze1)" > /etc/level-zero-version \
-    && echo "BUILT_LIBZE_LOADER=$(readlink -f /usr/lib/x86_64-linux-gnu/libze_loader.so.1 | xargs basename)" >> /etc/level-zero-version \
-    && cat /etc/level-zero-version
+RUN { \
+      echo "PAIRED_COMPUTE_RUNTIME=$(dpkg-query -W -f='${Version}' libze-intel-gpu1 2>/dev/null || echo unknown)"; \
+      echo "PAIRED_IGC=$(dpkg-query -W -f='${Version}' intel-igc-core-2 2>/dev/null || echo unknown)"; \
+      echo "PAIRED_GMMLIB=$(dpkg-query -W -f='${Version}' libigdgmm12 2>/dev/null || echo unknown)"; \
+      echo "PAIRED_LIBZE1=$(dpkg-query -W -f='${Version}' libze1 2>/dev/null || echo unknown)"; \
+      echo "PAIRED_LIBZE_LOADER=$(readlink -f /usr/lib/x86_64-linux-gnu/libze_loader.so.1 2>/dev/null | xargs -r basename)"; \
+    } > /etc/intel-stack-versions; \
+    cat /etc/intel-stack-versions
 
 ### Full (conversion + server + cli)
 FROM base AS full
