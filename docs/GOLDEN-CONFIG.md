@@ -38,10 +38,14 @@ docker run -d --name b70-llama-golden \
   -e ONEAPI_DEVICE_SELECTOR=level_zero:0 \
   -e SYCL_CACHE_PERSISTENT=0 \
   -e ZES_ENABLE_SYSMAN=1 \
+  $(sed 's/^/  -e /' <server-env — see §3>) \
   --restart no \
-  <image> \
-  <server args — see §3>
+  <image>
 ```
+
+There is no `command:` — every server parameter is an `LLAMA_ARG_*` environment
+variable (§3). Use `docker-compose.yml` or `examples/qwen27b-server.sh`, both of
+which already do this.
 
 | Setting | Value | Why |
 |---|---|---|
@@ -56,27 +60,85 @@ docker run -d --name b70-llama-golden \
 
 ## 3. Server arguments (golden, exact)
 
+The canonical form is **`LLAMA_ARG_*` environment variables**, because llama.cpp
+maps every server argument to one. `docker-compose.yml` and
+`examples/qwen27b-server.sh` both use this form; no flags are passed at all.
+
 ```bash
--m /models/Qwen3.8-27B-Q4_K_M.gguf
---mmproj /models/mmproj-Qwen3.8-27B-Q8_0.gguf
---no-mmproj-offload
---image-min-tokens 1024
---n-gpu-layers 999
---ctx-size 131072
---cache-type-k q8_0
---cache-type-v q8_0
---flash-attn on
---spec-draft-model /models/mtp-Qwen3.8-27B-Q8_0.gguf
---spec-type draft-mtp
---spec-draft-n-max 3
---spec-draft-p-min 0.1
---spec-draft-type-k q8_0
---spec-draft-type-v q8_0
---reasoning off
+LLAMA_ARG_MODEL=/models/Qwen3.8-27B-Q4_K_M.gguf
+LLAMA_ARG_MMPROJ=/models/mmproj-Qwen3.8-27B-Q8_0.gguf
+LLAMA_ARG_MMPROJ_OFFLOAD=false          # == --no-mmproj-offload
+LLAMA_ARG_IMAGE_MIN_TOKENS=1024
+LLAMA_ARG_N_GPU_LAYERS=999
+LLAMA_ARG_CTX_SIZE=131072
+LLAMA_ARG_CACHE_TYPE_K=q8_0
+LLAMA_ARG_CACHE_TYPE_V=q8_0
+LLAMA_ARG_FLASH_ATTN=on
+LLAMA_ARG_SPEC_DRAFT_MODEL=/models/mtp-Qwen3.8-27B-Q8_0.gguf
+LLAMA_ARG_SPEC_TYPE=draft-mtp
+LLAMA_ARG_SPEC_DRAFT_N_MAX=3
+LLAMA_ARG_SPEC_DRAFT_P_MIN=0.1
+LLAMA_ARG_SPEC_DRAFT_TYPE_K=q8_0
+LLAMA_ARG_SPEC_DRAFT_TYPE_V=q8_0
+LLAMA_ARG_REASONING=off
+LLAMA_ARG_CHAT_TEMPLATE_KWARGS={"enable_thinking":false,"preserve_thinking":false}
+LLAMA_ARG_N_PARALLEL=1
+LLAMA_ARG_TEMPERATURE=0.7
+LLAMA_ARG_TOP_P=0.80
+LLAMA_ARG_TOP_K=20
+LLAMA_ARG_MIN_P=0.0
+LLAMA_ARG_PRESENCE_PENALTY=1.5
+LLAMA_ARG_FREQUENCY_PENALTY=0.0
+LLAMA_ARG_REPEAT_PENALTY=1.0
+LLAMA_ARG_HOST=0.0.0.0
+LLAMA_ARG_PORT=8080
+```
+
+Plus the runtime variables from §2 (`ONEAPI_DEVICE_SELECTOR`,
+`SYCL_CACHE_PERSISTENT`, `ZES_ENABLE_SYSMAN`).
+
+### ⚠️ Minimum llama.cpp version for the env-var form
+
+**The six sampling variables are NOT supported before b11078.**
+
+| Variable group | Minimum version |
+|---|---|
+| model / ctx / KV / flash-attn / offload / mmproj / spec-decode / parallel / host / port | older than v0.4.1 |
+| **`LLAMA_ARG_TEMPERATURE`, `TOP_P`, `MIN_P`, `PRESENCE_PENALTY`, `FREQUENCY_PENALTY`, `REPEAT_PENALTY`** | **>= b11078** |
+
+The six were added in commit `e0dff5847` ("args: add env vars for temperature,
+top-p, min-p and penalties", #27380), first shipped in **b11078**.
+
+Consequences, all verified against the tree rather than assumed:
+
+- **v0.4.1 (b10964) and everything older does not support them.** They are
+  **silently ignored** — no warning, no error — and the server falls back to its
+  own defaults (`temp 0.8`, `top_p 0.95`, ...), which changes output quality
+  without any signal. The `:stable` tag was v0.4.1 when this was written.
+- **Any dev build before b11078 has the same gap.**
+- **v0.5.0 (>= b11146) is fine**, as is the dev image built from b11117+.
+
+For an older image, pass the six as flags instead — they take precedence over the
+env vars, so both forms can coexist safely:
+
+```bash
 --temp 0.7 --top-p 0.80 --top-k 20 --min-p 0.0
 --presence-penalty 1.5 --frequency-penalty 0.0 --repeat-penalty 1.0
---chat-template-kwargs '{"enable_thinking":false,"preserve_thinking":false}'
--v --host 0.0.0.0 --port 8080
+```
+
+`examples/qwen27b-server.sh` does this automatically via `USE_SAMPLING_FLAGS=1`.
+
+Verify what the server actually accepted rather than trusting the config — read it
+back from the running server:
+
+```bash
+curl -s http://127.0.0.1:8080/props | python3 -c "
+import json,sys; d=json.load(sys.stdin)
+p=d['default_generation_settings']
+print('n_ctx =', p['n_ctx'])
+for k in ('top_p','top_k','min_p','presence_penalty','frequency_penalty','repeat_penalty'):
+    print(f'  {k:20} = {p[\"params\"].get(k)}')
+"
 ```
 
 Rationale, group by group:
@@ -193,3 +255,4 @@ Reading the numbers:
 | 2026-09-20 | Level Zero recorded as **loader `1.28.6`**, not the `1.32.0` CI reports. The image is built on a base that already ships L0 1.28.6, and the oneAPI install in the same stage displaces the CI-pinned 1.32.0 packages. Driver (`26.35.39758.10`) and IGC (`2.41.5`) are unaffected. Root cause and evidence: [`LEVEL-ZERO-VERSION-DISCREPANCY.md`](LEVEL-ZERO-VERSION-DISCREPANCY.md). |
 | 2026-09-20 | Issue #19 dev candidate (`60081bb`, digest `sha256:4dc70c03…`) passed the full battery 8/8 with zero crashes; **not** promoted to `:stable` (parity, no stated reason for the llama.cpp bump). Published as `:server-dev` + `:server-dev-b11046-c26.35.39758.10`. Report: [`benchmark/results/2026-09-20-issue19-b11046-dev.md`](../benchmark/results/2026-09-20-issue19-b11046-dev.md). |
 | 2026-09-23 | Issue #20 dev candidate (b11117, digest `sha256:30159fab…`) passed the full battery 8/8 with zero crashes, no buffer splitting, and no prefill regression (±3 %). **First image in which the Level Zero packaging fix is actually present**: it ships loader `1.32.0` (was `1.28.6` in #18/#19), so this candidate moves both the llama.cpp build and the L0 loader — see the note on the §9 `LEVEL-ZERO-VERSION-DISCREPANCY.md` row below. **Not** promoted to `:stable`; dev channel only, pending a second clean pass on the same digest and a stated reason for the loader bump. Report: [`benchmark/results/2026-09-23-issue20-b11117-dev.md`](../benchmark/results/2026-09-23-issue20-b11117-dev.md). |
+| 2026-09-23 | **§3 rewritten to the `LLAMA_ARG_*` environment-variable form**; `docker-compose.yml` and `examples/qwen27b-server.sh` now pass **no flags at all**. Verified end-to-end on b11117: launched with env only, then read the values back from `/props` (`n_ctx 131072`, `top_p 0.80`, `top_k 20`, `min_p 0.0`, `presence_penalty 1.5`, `frequency_penalty 0.0`, `repeat_penalty 1.0`) and ran a real completion. Added the **version floor**: the six sampling variables need **>= b11078** (commit `e0dff5847`, #27380) and are *silently ignored* on v0.4.1 and older, so `USE_SAMPLING_FLAGS=1` exists for old images. |

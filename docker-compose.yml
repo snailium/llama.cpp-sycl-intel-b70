@@ -6,6 +6,43 @@
 # Override any value through the environment, e.g.:
 #   B70_IMAGE=ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:stable \
 #   MODELS_DIR=/srv/models B70_PORT=18082 docker compose up -d
+#
+# ---------------------------------------------------------------------------
+# WHY THIS USES ENVIRONMENT VARIABLES INSTEAD OF `command:`
+#
+# llama.cpp maps server arguments to `LLAMA_ARG_*` variables, so the whole
+# configuration can live in `environment:` / `env_file:` instead of a 50-element
+# argv array. That makes the file readable, lets Portainer edits change one
+# value without rebuilding the array, and lets a profile be swapped by changing
+# a single file.
+#
+# ⚠️ MINIMUM VERSION — READ BEFORE CHANGING THE IMAGE TAG
+#
+# Not every variable exists in every llama.cpp release. Verified boundaries:
+#
+#   | variable group                              | floor        |
+#   |---------------------------------------------|--------------|
+#   | model / ctx / KV / flash-attn / offload /   | older than   |
+#   | mmproj / spec-decode / parallel / host/port | v0.4.1       |
+#   | **sampling: TEMPERATURE, TOP_P, MIN_P,      | **>= b11078**|
+#   | PRESENCE_PENALTY, FREQUENCY_PENALTY,        |              |
+#   | REPEAT_PENALTY**                            |              |
+#
+# The six sampling variables were added in commit e0dff5847 ("args: add env vars
+# for temperature, top-p, min-p and penalties", #27380), first shipped in
+# **b11078**. Consequences:
+#
+#   * **v0.4.1 (b10964) and everything older does NOT support them.** On such an
+#     image the variables are silently ignored and the server runs with its
+#     defaults (temp 0.8, top_p 0.95, ...), which quietly changes output quality
+#     without any error. The `:stable` tag was v0.4.1 when this file was written.
+#   * **Any dev build before b11078 has the same gap.**
+#   * **v0.5.0 (>= b11146) is fine.**
+#
+# So: when pointing this file at an image older than b11078, move the six
+# sampling values back into `command:` (see the commented block at the bottom),
+# or accept that the server defaults apply.
+# ---------------------------------------------------------------------------
 version: "3.8"
 
 services:
@@ -33,62 +70,70 @@ services:
     volumes:
       - ${MODELS_DIR:-./models}:/models:ro
     environment:
+      # --- runtime / driver -------------------------------------------------
       - ONEAPI_DEVICE_SELECTOR=level_zero:0   # pin to the discrete GPU
       - SYCL_CACHE_PERSISTENT=0               # mandatory: =1 SIGSEGVs on Xe2 during the first JIT
       - ZES_ENABLE_SYSMAN=1
       # GGML_SYCL_FA_ONEDNN is intentionally unset: the source default is 1 (XMX oneDNN SDPA).
-    command:
-      - -m
-      - /models/Qwen3.8-27B-Q4_K_M.gguf
-      - --mmproj
-      - /models/mmproj-Qwen3.8-27B-Q8_0.gguf
-      - --no-mmproj-offload
-      - --image-min-tokens
-      - "1024"
-      - --n-gpu-layers
-      - "999"
-      - --ctx-size
-      - "131072"
-      - --cache-type-k
-      - q8_0
-      - --cache-type-v
-      - q8_0
-      - --flash-attn
-      - "on"
-      - --spec-draft-model
-      - /models/mtp-Qwen3.8-27B-Q8_0.gguf
-      - --spec-type
-      - draft-mtp
-      - --spec-draft-n-max
-      - "3"
-      - --spec-draft-p-min
-      - "0.1"
-      - --spec-draft-type-k
-      - q8_0
-      - --spec-draft-type-v
-      - q8_0
-      - --reasoning
-      - "off"
-      - --temp
-      - "0.7"
-      - --top-p
-      - "0.80"
-      - --top-k
-      - "20"
-      - --min-p
-      - "0.0"
-      - --presence-penalty
-      - "1.5"
-      - --frequency-penalty
-      - "0.0"
-      - --repeat-penalty
-      - "1.0"
-      - --chat-template-kwargs
-      - '{"enable_thinking":false,"preserve_thinking":false}'
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8080"
+
+      # --- model ------------------------------------------------------------
+      - LLAMA_ARG_MODEL=/models/Qwen3.8-27B-Q4_K_M.gguf
+      - LLAMA_ARG_MMPROJ=/models/mmproj-Qwen3.8-27B-Q8_0.gguf
+      - LLAMA_ARG_MMPROJ_OFFLOAD=false        # == --no-mmproj-offload
+      - LLAMA_ARG_IMAGE_MIN_TOKENS=1024
+      - LLAMA_ARG_N_GPU_LAYERS=999
+
+      # --- context / KV -----------------------------------------------------
+      - LLAMA_ARG_CTX_SIZE=131072
+      - LLAMA_ARG_CACHE_TYPE_K=q8_0
+      - LLAMA_ARG_CACHE_TYPE_V=q8_0
+      - LLAMA_ARG_FLASH_ATTN=on
+
+      # --- speculative decoding (MTP) --------------------------------------
+      - LLAMA_ARG_SPEC_DRAFT_MODEL=/models/mtp-Qwen3.8-27B-Q8_0.gguf
+      - LLAMA_ARG_SPEC_TYPE=draft-mtp
+      - LLAMA_ARG_SPEC_DRAFT_N_MAX=3
+      - LLAMA_ARG_SPEC_DRAFT_P_MIN=0.1
+      - LLAMA_ARG_SPEC_DRAFT_TYPE_K=q8_0
+      - LLAMA_ARG_SPEC_DRAFT_TYPE_V=q8_0
+
+      # --- chat / reasoning -------------------------------------------------
+      - LLAMA_ARG_REASONING=off
+      - LLAMA_ARG_CHAT_TEMPLATE_KWARGS={"enable_thinking":false,"preserve_thinking":false}
+
+      # --- sampling (⚠️ needs llama.cpp >= b11078; NOT supported on v0.4.1) --
+      - LLAMA_ARG_TEMPERATURE=0.7
+      - LLAMA_ARG_TOP_P=0.80
+      - LLAMA_ARG_TOP_K=20
+      - LLAMA_ARG_MIN_P=0.0
+      - LLAMA_ARG_PRESENCE_PENALTY=1.5
+      - LLAMA_ARG_FREQUENCY_PENALTY=0.0
+      - LLAMA_ARG_REPEAT_PENALTY=1.0
+
+      # --- serving ----------------------------------------------------------
+      - LLAMA_ARG_N_PARALLEL=1
+      - LLAMA_ARG_HOST=0.0.0.0
+      - LLAMA_ARG_PORT=8080
+
+    # No `command:` — every parameter above is delivered as LLAMA_ARG_*.
+    #
+    # FALLBACK for images older than b11078 (e.g. v0.4.1 / :stable before v0.5.0),
+    # where the six LLAMA_ARG_* sampling variables above are ignored. Delete those
+    # six lines and uncomment this block:
+    #
+    # command:
+    #   - --temp
+    #   - "0.7"
+    #   - --top-p
+    #   - "0.80"
+    #   - --min-p
+    #   - "0.0"
+    #   - --presence-penalty
+    #   - "1.5"
+    #   - --frequency-penalty
+    #   - "0.0"
+    #   - --repeat-penalty
+    #   - "1.0"
     healthcheck:
       # /health returns 503 ("Loading model") until the ~2 min model load finishes;
       # start_period covers that window.
