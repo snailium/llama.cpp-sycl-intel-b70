@@ -112,17 +112,23 @@ passing and failing.** The honest reading:
 deterministically. **224 K should not be relied on** without re-measuring on a healthy card.
 
 This is consistent with the `b70-backend-test` skill's note that GPU dropout on this card is
-**PCIe link-training instability** (B450 board), not a driver or image defect. After the wedge the
-PCIe link was observed degraded:
+**PCIe link-training instability** (B450 board), not a driver or image defect.
 
-```
-LnkCap: Port #0, Speed 2.5GT/s, Width x1
-LnkSta: Speed 2.5GT/s, Width x1
-```
+> **Correction (2026-09-23).** An earlier revision of this document claimed the PCIe link had
+> degraded to `2.5GT/s x1` and inferred a physical-layer failure. **That was wrong** — the numbers
+> were read from the B70 endpoint (`0c:00.0`), which always reports `2.5GT/s x1` on this host because
+> it describes the internal switch-to-endpoint link, not the host-facing link. The authoritative
+> reading is the **Intel PCIe switch upstream port `0a:00.0`**, which showed `16GT/s x8` both before
+> and after the wedge — **the link never degraded.** See
+> [`B70-PCIE-LINK-RATE.md`](B70-PCIE-LINK-RATE.md) for the topology and the correct command.
+>
+> The wedge is therefore a **driver/GPU hang** (`xe` declared the device wedged after job timeouts),
+> not a link-training event. The reboot requirement stands, but for the driver-hang reason, not a
+> link reason.
 
-A link that has dropped to a single lane at 2.5 GT/s is a physical-layer failure; no software
-recovery will restore it. **A host reboot is required**, and the device may need reseating if it does
-not come back.
+A `xe`-wedged device with unkillable D-state processes requires a **host reboot** to clear; the FLR
+reset and PCI rebind both failed to recover it.
+
 
 ## Not measured (and why)
 
@@ -153,4 +159,11 @@ not come back.
 | File | Contents |
 |---|---|
 | `test-issue20/ctx-probe/xe_wedge_dmesg.txt` | `dmesg` showing the job timeouts and the wedged declaration |
+| `test-issue20/ctx-probe/switch_0a000_full.txt` | `lspci -vv` of the Intel PCIe switch upstream port — the authoritative link reading |
 | `test-issue20/probe_ctx.sh`, `/tmp/probe4.sh` (on home-ai) | the probe harness |
+
+## See also
+
+- [`B70-PCIE-LINK-RATE.md`](B70-PCIE-LINK-RATE.md) — why the B70 endpoint's link fields are
+  misleading and the Intel PCIe switch upstream port (`0a:00.0`) is the one to read.
+
