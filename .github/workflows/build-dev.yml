@@ -105,6 +105,12 @@ jobs:
 
       # ============================================================
       # Decision: 2a (point-to-stable / skip) or 2b (build dev from b tag)
+      #
+      # `should_build` is the ONLY execution gate. `strategy` is a diagnostic
+      # label explaining WHY, and must never appear in a step condition - the
+      # build steps used to also require `strategy == 'build-dev'`, so a
+      # `force: true` dispatch (which sets `strategy=force`) skipped every
+      # build step and still reported a green run.
       # ============================================================
       - name: Decide dev build strategy
         id: decide
@@ -114,7 +120,9 @@ jobs:
           FORCE="${{ github.event.inputs.force || 'false' }}"
           if [[ "$FORCE" == "true" ]]; then
             echo "should_build=true" >> $GITHUB_OUTPUT; echo "strategy=force" >> $GITHUB_OUTPUT
-            echo "reason=Forced by manual dispatch"; exit 0
+            echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
+            echo "reason=Forced by manual dispatch"
+            exit 0
           fi
           if [[ "$IS_RELEASE" == "true" ]]; then
             echo "should_build=false" >> $GITHUB_OUTPUT; echo "strategy=point-to-stable" >> $GITHUB_OUTPUT
@@ -149,11 +157,11 @@ jobs:
             });
 
       - name: Set up Docker Buildx
-        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        if: steps.decide.outputs.should_build == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
-        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        if: steps.decide.outputs.should_build == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -161,14 +169,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Clone llama.cpp at latest b tag (for dev)
-        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        if: steps.decide.outputs.should_build == 'true'
         id: clone
         run: |
           rm -rf llama.cpp
           git clone --depth 1 --branch "${{ steps.llama.outputs.latest_b }}" https://github.com/ggml-org/llama.cpp llama.cpp
 
       - name: Compute dev temporary tag
-        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        if: steps.decide.outputs.should_build == 'true'
         id: tag
         run: |
           TAG="server-dev-${{ steps.llama.outputs.latest_b }}-c${{ steps.deps.outputs.latest_compute }}-$(date +%Y%m%d-%H%M)"
@@ -176,7 +184,7 @@ jobs:
           echo "full_image=ghcr.io/${{ github.repository }}/llama-sycl-b70:${TAG}" >> $GITHUB_OUTPUT
 
       - name: Build and push (dev candidate)
-        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        if: steps.decide.outputs.should_build == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -206,7 +214,7 @@ jobs:
       # See docs/LEVEL-ZERO-VERSION-DISCREPANCY.md.
       - name: Verify built image versions
         id: verify
-        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        if: steps.decide.outputs.should_build == 'true'
         run: |
           set -e
           IMAGE="ghcr.io/${{ github.repository }}/llama-sycl-b70:${{ steps.tag.outputs.image_tag }}"
@@ -228,7 +236,7 @@ jobs:
           esac
 
       - name: Create detailed Issue (dev build)
-        if: steps.decide.outputs.should_build == 'true' && steps.decide.outputs.strategy == 'build-dev'
+        if: steps.decide.outputs.should_build == 'true'
         uses: actions/github-script@v7
         with:
           script: |
