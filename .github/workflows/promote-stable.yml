@@ -1,0 +1,75 @@
+name: Promote B70 stable tag
+
+# Moves the floating `:stable` tag onto a candidate that has passed the full B70
+# test suite AND has been explicitly approved for production. Manifest-only.
+#
+# Use promote-dev.yml for dev-channel candidates. This workflow exists so a
+# production promote is an explicit, audited, one-command action rather than a
+# hand-run `docker buildx imagetools create` on someone's laptop.
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: Source candidate tag to promote to :stable
+        required: true
+        default: server-c26.35.39758.10-v0.4.1
+      expected_digest:
+        description: 'Optional guard: full sha256:... the source must resolve to'
+        required: false
+        default: ''
+      release_tag:
+        description: 'Optional additional clean release tag (e.g. server-c26.35.39758.10-v0.4.2)'
+        required: false
+        default: ''
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote candidate to :stable
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ github.repository }}/llama-sycl-b70"
+          SRC="$IMAGE:${{ inputs.source_tag }}"
+          DST="$IMAGE:stable"
+
+          SRC_DIGEST=$(docker buildx imagetools inspect "$SRC" --format '{{.Manifest.Digest}}')
+          echo "source  ${{ inputs.source_tag }} -> $SRC_DIGEST"
+
+          EXPECTED="${{ inputs.expected_digest }}"
+          if [ -n "$EXPECTED" ] && [ "$SRC_DIGEST" != "$EXPECTED" ]; then
+            echo "ERROR: source digest $SRC_DIGEST != expected $EXPECTED" >&2
+            exit 1
+          fi
+
+          PREV=$(docker buildx imagetools inspect "$DST" --format '{{.Manifest.Digest}}' || true)
+          echo "previous :stable -> ${PREV:-<none>}"
+          if [ -n "$PREV" ] && [ "$PREV" != "$SRC_DIGEST" ]; then
+            echo "::warning::repointing :stable from $PREV to $SRC_DIGEST — record the old digest as the rollback point"
+          fi
+
+          docker buildx imagetools create --tag "$DST" "$SRC"
+
+          REL="${{ inputs.release_tag }}"
+          if [ -n "$REL" ]; then
+            docker buildx imagetools create --tag "$IMAGE:$REL" "$SRC"
+            echo "  also tagged :$REL"
+          fi
+
+          NEW=$(docker buildx imagetools inspect "$DST" --format '{{.Manifest.Digest}}')
+          echo "new      :stable -> $NEW"
+          if [ "$NEW" != "$SRC_DIGEST" ]; then
+            echo "ERROR: :stable ($NEW) does not match the source ($SRC_DIGEST)" >&2
+            exit 1
+          fi
+          echo "OK: :stable == ${{ inputs.source_tag }} @ $NEW"

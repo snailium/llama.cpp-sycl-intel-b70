@@ -1,0 +1,75 @@
+name: Promote B70 dev tag
+
+# Moves the floating `:server-dev` tag onto a dev candidate that has passed the
+# full B70 test suite. Manifest-only: no layers are re-uploaded and nothing is
+# rebuilt. Promote by SOURCE TAG, and confirm the resulting digest equals the
+# digest that was actually tested before closing the issue.
+#
+# `:stable` is deliberately NOT touched here — use promote-stable.yml for that.
+# Keeping the two apart is what stops a dev candidate from silently becoming
+# production.
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: Source dev candidate tag to promote to :server-dev
+        required: true
+        default: server-dev-b11117-c26.35.39758.10-20260923-0200
+      expected_digest:
+        description: 'Optional guard: full sha256:... the source must resolve to'
+        required: false
+        default: ''
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote candidate to :server-dev
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ github.repository }}/llama-sycl-b70"
+          SRC="$IMAGE:${{ inputs.source_tag }}"
+          DST="$IMAGE:server-dev"
+
+          SRC_DIGEST=$(docker buildx imagetools inspect "$SRC" --format '{{.Manifest.Digest}}')
+          echo "source  ${{ inputs.source_tag }} -> $SRC_DIGEST"
+
+          # Optional guard: refuse to move the floating tag if the candidate is not
+          # the artifact that was tested. Tags are mutable; the digest is the record.
+          EXPECTED="${{ inputs.expected_digest }}"
+          if [ -n "$EXPECTED" ] && [ "$SRC_DIGEST" != "$EXPECTED" ]; then
+            echo "ERROR: source digest $SRC_DIGEST != expected $EXPECTED" >&2
+            exit 1
+          fi
+
+          PREV=$(docker buildx imagetools inspect "$DST" --format '{{.Manifest.Digest}}' || true)
+          echo "previous :server-dev -> ${PREV:-<none>}"
+
+          docker buildx imagetools create --tag "$DST" "$SRC"
+
+          NEW=$(docker buildx imagetools inspect "$DST" --format '{{.Manifest.Digest}}')
+          echo "new      :server-dev -> $NEW"
+
+          # The promote is only correct if the floating tag now resolves to the
+          # exact bytes of the tested candidate.
+          if [ "$NEW" != "$SRC_DIGEST" ]; then
+            echo "ERROR: :server-dev ($NEW) does not match the source ($SRC_DIGEST)" >&2
+            exit 1
+          fi
+          echo "OK: :server-dev == ${{ inputs.source_tag }} @ $NEW"
+
+      - name: Confirm :stable was not touched
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ github.repository }}/llama-sycl-b70"
+          echo "stable -> $(docker buildx imagetools inspect "$IMAGE:stable" --format '{{.Manifest.Digest}}' || echo '<none>')"

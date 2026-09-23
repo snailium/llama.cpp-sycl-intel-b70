@@ -182,7 +182,7 @@ Reading the numbers:
 | [`examples/qwen27b-server.sh`](../examples/qwen27b-server.sh) | bare-metal launcher mirroring §3 exactly |
 | [`docker-compose.yml`](../docker-compose.yml) | container definition mirroring §2 + §3 |
 | [`benchmark/configs/golden-v041-q8-128k-mtp3.md`](../benchmark/configs/golden-v041-q8-128k-mtp3.md) | config record with the measured numbers |
-| [`LEVEL-ZERO-VERSION-DISCREPANCY.md`](LEVEL-ZERO-VERSION-DISCREPANCY.md) | why the image ships L0 1.28.6 while CI reports 1.32.0 |
+| [`LEVEL-ZERO-VERSION-DISCREPANCY.md`](LEVEL-ZERO-VERSION-DISCREPANCY.md) | why the image shipped L0 1.28.6 while CI reported 1.32.0 — **fixed as of the 2026-09-23 b11117 candidate, which ships `libze1 1.32.0`** |
 
 ## Change log
 
@@ -192,3 +192,4 @@ Reading the numbers:
 | 2026-09-20 | `:stable` re-pointed to the issue-#18 artifact (compute-runtime `26.35.39758.10`, IGC `v2.41.5`, digest `sha256:d7f30320…`). Image/digest/§6 provenance rows updated to match what production actually serves — they had drifted a release behind. |
 | 2026-09-20 | Level Zero recorded as **loader `1.28.6`**, not the `1.32.0` CI reports. The image is built on a base that already ships L0 1.28.6, and the oneAPI install in the same stage displaces the CI-pinned 1.32.0 packages. Driver (`26.35.39758.10`) and IGC (`2.41.5`) are unaffected. Root cause and evidence: [`LEVEL-ZERO-VERSION-DISCREPANCY.md`](LEVEL-ZERO-VERSION-DISCREPANCY.md). |
 | 2026-09-20 | Issue #19 dev candidate (`60081bb`, digest `sha256:4dc70c03…`) passed the full battery 8/8 with zero crashes; **not** promoted to `:stable` (parity, no stated reason for the llama.cpp bump). Published as `:server-dev` + `:server-dev-b11046-c26.35.39758.10`. Report: [`benchmark/results/2026-09-20-issue19-b11046-dev.md`](../benchmark/results/2026-09-20-issue19-b11046-dev.md). |
+| 2026-09-23 | Issue #20 dev candidate (b11117, digest `sha256:30159fab…`) passed the full battery 8/8 with zero crashes, no buffer splitting, and no prefill regression (±3 %). **First image in which the Level Zero packaging fix is actually present**: it ships loader `1.32.0` (was `1.28.6` in #18/#19), so this candidate moves both the llama.cpp build and the L0 loader — see the note on the §9 `LEVEL-ZERO-VERSION-DISCREPANCY.md` row below. **Not** promoted to `:stable`; dev channel only, pending a second clean pass on the same digest and a stated reason for the loader bump. Report: [`benchmark/results/2026-09-23-issue20-b11117-dev.md`](../benchmark/results/2026-09-23-issue20-b11117-dev.md). |
