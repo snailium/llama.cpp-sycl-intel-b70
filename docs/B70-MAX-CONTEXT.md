@@ -9,12 +9,15 @@ Config: golden `docs/GOLDEN-CONFIG.md` §2–§3, **only `--ctx-size` varied** �
 | Bound | Value | Nature |
 |---|---|---|
 | **Model's native training context** | **262 144 (256 K)** | hard ceiling — from GGUF metadata, `qwen35.context_length = 262144` |
-| **Largest context that actually served a request** | **229 376 (224 K)** | measured |
-| **First size that failed** | **245 760 (240 K)** | measured — `Failed to allocate physical memory` |
+| **256 K with q4_0 main KV** | **WORKS — 220 022-token request served** | measured, see "256 K IS reachable" below |
+| Largest context with the *golden* (q8_0) KV | 229 376 (224 K) | measured, but marginal (passed once, failed on retry) |
+| First size that failed with q8_0 KV | 245 760 (240 K) | measured — `Failed to allocate physical memory` |
 | **Shipped production config** | 131 072 (128 K) | `docs/GOLDEN-CONFIG.md`, unchanged |
 
-**Practical maximum on this card, with the golden config: 224 K (229 376).** It is set by **VRAM,
-not by the model** — the model could go to 256 K but the card cannot hold the KV cache for it.
+**256 K is reachable — but the lever is the MAIN KV type, not the draft quant.** With `q8_0` main KV
+the practical ceiling is ~224 K (VRAM-bound, not model-bound). Shrinking the MTP draft to Q4 frees
+~1.2 GiB and changes nothing; halving the main KV (`q4_0`) makes 256 K work. See
+["256 K IS reachable"](#256-k-is-reachable--but-not-by-shrinking-the-draft-measured-2026-09-23).
 
 ## What was measured
 
@@ -130,6 +133,67 @@ A `xe`-wedged device with unkillable D-state processes requires a **host reboot*
 reset and PCI rebind both failed to recover it.
 
 
+## 256 K IS reachable — but not by shrinking the draft (measured 2026-09-23)
+
+After the reboot, three configs were tested at `--ctx-size 262144`. All three **loaded**
+successfully; the difference is whether they **served** a request.
+
+| # | MTP weights | MTP KV | **Main KV** | mmproj | Result |
+|---|---|---|---|---|---|
+| A | Q8_0 | q8_0 | **q8_0** | CPU | ❌ SIGSEGV on 1st request (baseline) |
+| B | **Q4_0** | **q4_0** | **q8_0** | **VRAM** | ❌ **SIGSEGV on 1st request** |
+| C | **Q4_0** | **q4_0** | **q4_0** | **VRAM** | ✅ **WORKS — 220 022-token request served** |
+
+### The key result: shrinking the draft does nothing
+
+Config **B** is exactly the change that was proposed (MTP model + MTP KV to Q4, main KV left at
+q8_0, mmproj moved into VRAM). It **fails identically to the baseline**, and the numbers explain why:
+
+| Component | A (Q8_0 draft) | B (Q4_0 draft) | Δ |
+|---|---|---|---|
+| Main model | 17402.38 MiB | 17402.38 MiB | — |
+| **Draft weights** | 1718.71 MiB | **774.71 MiB** | **−944 MiB** |
+| **Main KV (q8_0, 256 K)** | 8704.00 MiB | **8704.00 MiB** | **— (untouched)** |
+| Draft KV | 272.00 MiB | 288.00 MiB | +16 MiB (q4_0 KV is *larger* here) |
+| RS | 2394.00 MiB | 2394.00 MiB | — |
+| Compute | 1372.28 MiB | 1372.28 MiB | — |
+| **Total** | **32135 MiB** | **30935 MiB** | −1200 MiB |
+
+**Config B's total (30 935 MiB) is *below* the measured known-good 224 K total (30 979 MiB) — and it
+still crashes.** That is the proof that total VRAM is not the constraint. The failure is
+`ggml_sycl_pool_vmm::alloc` (ggml-sycl.cpp:1861), and what fails is the **single 8704 MiB main-KV
+allocation**. Shrinking a 1719 MiB *weight* buffer does not help a 8704 MiB *KV* allocation.
+
+> Also note the draft KV went **up** slightly (272 → 288 MiB) when moved to q4_0 at this context —
+> so "Q4 everything on the draft" is not even a reliable saving on the KV side.
+
+### The lever that actually works: main KV
+
+Config **C** changes only the main KV type, halving the offending allocation:
+
+```
+llama_kv_cache:      SYCL0 KV buffer size =  4608.00 MiB   (q4_0 @256K; was 8704.00 with q8_0)
+```
+
+**Verified working, not just loading:**
+
+- Real completion returns `content: "ok"`.
+- 3 consecutive requests OK; `RestartCount=0`, `OOMKilled=false`, **zero** crash signatures.
+- **A 220 022-token prompt was served correctly** — the full window genuinely exercised, not just
+  allocated. (A separate 180 516-token prefill ran at **387.9 t/s**, so long-context prefill stays
+  usable: 465 s for 180 K tokens.)
+- A 40 022-token request ran at **592.3 t/s** prefill.
+
+### Recommendation for 256 K
+
+Use **config C**: `--cache-type-k q4_0 --cache-type-v q4_0` (main) + Q4_0 MTP draft with
+`--spec-draft-type-k/v q4_0`, mmproj in VRAM. Do **not** bother with the draft-only change — it is
+measurably useless for this problem.
+
+Caveats: main KV at q4_0 costs KV precision versus the golden q8_0 (this is the trade the Vulkan
+service already makes). Config C was validated for *usability and stability*, not run through the
+full t1–t5/V1–V3 battery, so it is not yet a promotion candidate.
+
 ## Not measured (and why)
 
 - **Exact boundary between 229 376 and 245 760** — the card wedged before it could be bisected.
@@ -137,9 +201,10 @@ reset and PCI rebind both failed to recover it.
   ambiguous in both directions.
 - **Per-task performance at long context** — no decode/prefill numbers were taken at these sizes;
   this probe only established whether a context size is *usable*, not how fast it is.
-- **Non-golden ways to buy more context** — e.g. dropping the MTP draft (frees 1718 MiB model +
-  ~476 MiB KV at 224 K ≈ 2.2 GiB, which would likely make 256 K fit), or KV q4_0. Both change the
-  golden config and were out of scope here.
+- **Full-suite quality at 256 K with q4_0 KV** — config C served a 220 K-token prompt cleanly, but
+  the t1–t5/V1–V3 battery has not been run against it, so answer quality at q4_0 KV is unverified.
+- **Dropping the draft entirely** — no longer needed, since config C reaches 256 K with speculation
+  intact.
 
 ## Practical guidance
 
