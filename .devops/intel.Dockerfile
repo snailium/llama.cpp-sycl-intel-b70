@@ -320,6 +320,42 @@ FROM base AS server
 
 ENV LLAMA_ARG_HOST=0.0.0.0
 
+# ---------------------------------------------------------------------------
+# DEBUG_FLAG -- why this exists instead of a plain `ENV LLAMA_ARG_VERBOSE`
+#
+# `-v / --verbose / --log-verbose` is the ONE llama.cpp argument with no
+# `.set_env(...)` mapping (common/arg.cpp, the sole `add_opt` in that block that
+# omits it). There is therefore NO environment variable upstream will read:
+# `ENV LLAMA_ARG_VERBOSE=1` is silently ignored, and `LLAMA_ARG_LOG_VERBOSITY`
+# sets a numeric threshold rather than enabling the per-request `print_timing`
+# lines that `-v` turns on. So verbosity has to reach the binary as argv.
+#
+# This wrapper word-splits DEBUG_FLAG into the argument list. Empty (the default)
+# contributes NO argument at all -- verified, not assumed:
+#     DEBUG_FLAG=""    -> argc excludes it entirely
+#     DEBUG_FLAG="-v"  -> -v is inserted before the user's own arguments
+# Because it is unquoted, a caller can pass more than one flag if ever needed
+# (e.g. DEBUG_FLAG="-v --log-colors off"), which a quoted "$DEBUG_FLAG" could not.
+#
+# WHY IT MATTERS: without `-v` the server log is ~13 lines and agent-task draft
+# acceptance is unrecoverable -- those rates exist ONLY in the server's
+# `print_timing` output, since the dsh harness is the client and never sees the
+# response-body `timings` block. One B70 run lost three rows permanently this way.
+#
+# Usage:  -e DEBUG_FLAG=-v
+#
+# ⚠️ The `--` argument name after the command string is REQUIRED, and is NOT a
+# Docker `--` separator. `sh -c 'cmd' name arg1 arg2` sets $0=name and $@=arg1..,
+# so `--` is what lands in $0 (a harmless placeholder). Without it, $0 would take
+# the caller's first real argument and $@ would silently drop it.
+#
+# Do NOT add a `--` to the `docker run` command line itself: that `--` is passed
+# through as a genuine argument and llama-server then reads it as an option name
+# ("error while handling argument \"-c\": stoi"). Verified against the released
+# v0.5.0 image -- the container exited 1 with exactly that error.
+# ---------------------------------------------------------------------------
+ENV DEBUG_FLAG=""
+
 COPY --from=build /app/lib/ /app
 COPY --from=build /app/full/llama /app/full/llama-server /app/
 
@@ -327,4 +363,4 @@ WORKDIR /app
 
 HEALTHCHECK CMD [ "curl", "-f", "http://localhost:8080/health" ]
 
-ENTRYPOINT [ "/app/llama-server" ]
+ENTRYPOINT [ "/bin/sh", "-c", "exec /app/llama-server $DEBUG_FLAG \"$@\"", "--" ]

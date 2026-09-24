@@ -47,6 +47,9 @@ There is no `command:` — every server parameter is an `LLAMA_ARG_*` environmen
 variable (§3). Use `docker-compose.yml` or `examples/qwen27b-server.sh`, both of
 which already do this.
 
+The one **non-`LLAMA_ARG_*`** variable is `DEBUG_FLAG` (see §2.1) — it exists
+because `-v` has no environment-variable mapping upstream.
+
 | Setting | Value | Why |
 |---|---|---|
 | Device | `/dev/dri` (whole directory) | the Arc GPU is `renderD128`; passing the directory survives card index changes |
@@ -56,7 +59,92 @@ which already do this.
 | `SYCL_CACHE_PERSISTENT` | `0` | **mandatory** — `1` SIGSEGVs on Xe2 during first JIT |
 | `ZES_ENABLE_SYSMAN` | `1` | sysman queries (memory/utilisation) |
 | `GGML_SYCL_FA_ONEDNN` | *unset* (defaults to `1`) | XMX SDPA path; only set it explicitly to force `0` for A/B |
+| `DEBUG_FLAG` | `""` default; set `-v` to enable verbose logging | see §2.1 — the only way to get `-v` into argv from the environment |
 | `--restart` | `no` | deliberate: GPU containers must be brought up consciously after host/PCIe events |
+
+### 2.1 `DEBUG_FLAG` — how `-v` reaches the binary
+
+**`-v` is the only llama.cpp server argument with no `.set_env(...)` mapping.**
+In `common/arg.cpp` it is declared as
+
+```cpp
+add_opt(common_arg(
+    {"-v", "--verbose", "--log-verbose"},
+    "Set verbosity level to infinity (i.e. log all messages, useful for debugging)",
+    [](common_params & params) { params.verbosity = INT_MAX; ... }
+));                       // <-- no .set_env(...)
+```
+
+so **no environment variable will turn it on**:
+
+| Attempt | Result |
+|---|---|
+| `ENV LLAMA_ARG_VERBOSE=1` | **silently ignored** — no such variable exists upstream |
+| `ENV LLAMA_ARG_LOG_VERBOSITY=5` | sets a *numeric threshold*; does **not** produce the per-request `print_timing` lines |
+| `ENV DEBUG_FLAG=-v` | ✅ works — the image entrypoint injects it into argv |
+
+The `server` stage therefore wraps the binary:
+
+```dockerfile
+ENV DEBUG_FLAG=""
+ENTRYPOINT [ "/bin/sh", "-c", "exec /app/llama-server $DEBUG_FLAG \"$@\"", "--" ]
+```
+
+`DEBUG_FLAG` is word-split (deliberately unquoted), so:
+
+- empty or unset → contributes **no argument at all** (the default path is unaffected);
+- `DEBUG_FLAG=-v` → `-v` is inserted *before* the caller's own arguments;
+- more than one flag is possible, e.g. `DEBUG_FLAG="-v --log-colors off"`.
+
+⚠️ **The trailing `"--"` inside `ENTRYPOINT` is required, and is not a Docker
+separator.** `sh -c 'cmd' name arg1 …` puts `name` in `$0` and `arg1…` in `$@`, so
+the literal `--` is just the `$0` placeholder; without it `$0` would swallow the
+caller's first real argument.
+
+⚠️ **Do NOT put a `--` on the `docker run` command line.** That one *is* a real
+argument, llama-server reads it as an option name, and the container dies at boot:
+
+```
+$ docker run … <image> -c 'exec /app/llama-server $DEBUG_FLAG "$@"' -- 
+warn: LLAMA_ARG_CTX_SIZE environment variable is set, but will be overwritten by
+      command line argument -c
+error while handling argument "-c": stoi          # ExitCode=1
+```
+
+Verified against the released v0.5.0 image, both the failure and the fix.
+
+Usage:
+
+```bash
+docker run -d ... -e DEBUG_FLAG=-v <image>
+# docker-compose.yml:  - DEBUG_FLAG=${DEBUG_FLAG:-}
+```
+
+**Verification performed** (released `sha256:a7106ff2…` image, `/bin/sh` = dash):
+
+| `DEBUG_FLAG` | resulting argv |
+|---|---|
+| unset | `--model … --ctx-size …` — **no extra argument** |
+| `""` | `--model … --ctx-size …` — **no extra argument** |
+| `-v` | `-v --model … --ctx-size …` |
+| `-v --log-colors off` | `-v --log-colors off --model …` |
+| `-v`, no user args | `-v` |
+
+End-to-end with a real server: `DEBUG_FLAG=-v` produced **6100 log lines and 4
+`print_timing` records** for one request, versus **13 lines and 0 records** without
+it — i.e. exactly the acceptance data that is otherwise unrecoverable.
+
+**Why this is not cosmetic.** Without `-v` the server log is ~13 lines and
+**agent-task (t3-t5) draft acceptance is unrecoverable** — those rates exist *only*
+in the server's `print_timing` output, because for agent tasks the dsh harness is the
+client and never sees the response-body `timings` block. One B70 run
+(2026-09-20) removed its container before dumping the log and lost three rows
+permanently. With `DEBUG_FLAG=-v` the variable is a container setting rather than a
+step someone has to remember.
+
+⚠️ **`-v` makes log lines contain full request bodies** (MBs per call). Bound output
+width when grepping, and note that a single request body is **one enormous line** —
+`wc -l` is useless as a progress window; use the `print_timing` count instead.
 
 ## 3. Server arguments (golden, exact)
 
@@ -78,8 +166,8 @@ LLAMA_ARG_SPEC_DRAFT_MODEL=/models/mtp-Qwen3.8-27B-Q8_0.gguf
 LLAMA_ARG_SPEC_TYPE=draft-mtp
 LLAMA_ARG_SPEC_DRAFT_N_MAX=3
 LLAMA_ARG_SPEC_DRAFT_P_MIN=0.1
-LLAMA_ARG_SPEC_DRAFT_TYPE_K=q8_0
-LLAMA_ARG_SPEC_DRAFT_TYPE_V=q8_0
+LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K=q8_0
+LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_V=q8_0
 LLAMA_ARG_REASONING=off
 LLAMA_ARG_CHAT_TEMPLATE_KWARGS={"enable_thinking":false,"preserve_thinking":false}
 LLAMA_ARG_N_PARALLEL=1
@@ -95,7 +183,39 @@ LLAMA_ARG_PORT=8080
 ```
 
 Plus the runtime variables from §2 (`ONEAPI_DEVICE_SELECTOR`,
-`SYCL_CACHE_PERSISTENT`, `ZES_ENABLE_SYSMAN`).
+`SYCL_CACHE_PERSISTENT`, `ZES_ENABLE_SYSMAN`) and `DEBUG_FLAG` from §2.1.
+
+### ⚠️ `SPEC_DRAFT_CACHE_TYPE_K/V` — the draft-KV variable name is easy to get wrong
+
+The two draft-KV variables are spelled **`LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K`** and
+**`_V`**, *not* `LLAMA_ARG_SPEC_DRAFT_TYPE_K/_V`. This document carried the wrong
+names until 2026-09-23, and because an unknown `LLAMA_ARG_*` variable is **silently
+ignored** — no warning, no error — the draft KV ran at its **f16 default** in every
+run that used the env-var form while the docs claimed `q8_0`.
+
+The confusion is upstream's, not ours: the CLI flag and the env var deliberately
+differ in shape.
+
+```cpp
+// common/arg.cpp
+add_opt(common_arg(
+    {"--spec-draft-type-k", "-ctkd", "--cache-type-k-draft"}, "TYPE", ...
+).set_env("LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K"));
+//            ^^^^ flag reads "type"          ^^^^ env reads "cache_type"
+```
+
+Confirmed by enumerating the env-var strings out of the shipped libraries of both
+the v0.4.1 baseline (`sha256:d7f30320…`) and the v0.5.0 candidate
+(`sha256:a7106ff2…`) — both expose only `…_CACHE_TYPE_K/_V`, so this was
+**pre-existing and is not a v0.5.0 regression**.
+
+Verify what the server actually took, rather than trusting this file:
+
+```bash
+docker logs <container> 2>&1 | grep 'spec common_specu: - gpu_layers'
+# want: cache_k=q8_0, cache_v=q8_0
+# wrong name => cache_k=f16, cache_v=f16  (and the draft KV buffer is 512 MiB, not 272 MiB)
+```
 
 ### ⚠️ Minimum llama.cpp version for the env-var form
 
@@ -256,3 +376,5 @@ Reading the numbers:
 | 2026-09-20 | Issue #19 dev candidate (`60081bb`, digest `sha256:4dc70c03…`) passed the full battery 8/8 with zero crashes; **not** promoted to `:stable` (parity, no stated reason for the llama.cpp bump). Published as `:server-dev` + `:server-dev-b11046-c26.35.39758.10`. Report: [`benchmark/results/2026-09-20-issue19-b11046-dev.md`](../benchmark/results/2026-09-20-issue19-b11046-dev.md). |
 | 2026-09-23 | Issue #20 dev candidate (b11117, digest `sha256:30159fab…`) passed the full battery 8/8 with zero crashes, no buffer splitting, and no prefill regression (±3 %). **First image in which the Level Zero packaging fix is actually present**: it ships loader `1.32.0` (was `1.28.6` in #18/#19), so this candidate moves both the llama.cpp build and the L0 loader — see the note on the §9 `LEVEL-ZERO-VERSION-DISCREPANCY.md` row below. **Not** promoted to `:stable`; dev channel only, pending a second clean pass on the same digest and a stated reason for the loader bump. Report: [`benchmark/results/2026-09-23-issue20-b11117-dev.md`](../benchmark/results/2026-09-23-issue20-b11117-dev.md). |
 | 2026-09-23 | **§3 rewritten to the `LLAMA_ARG_*` environment-variable form**; `docker-compose.yml` and `examples/qwen27b-server.sh` now pass **no flags at all**. Verified end-to-end on b11117: launched with env only, then read the values back from `/props` (`n_ctx 131072`, `top_p 0.80`, `top_k 20`, `min_p 0.0`, `presence_penalty 1.5`, `frequency_penalty 0.0`, `repeat_penalty 1.0`) and ran a real completion. Added the **version floor**: the six sampling variables need **>= b11078** (commit `e0dff5847`, #27380) and are *silently ignored* on v0.4.1 and older, so `USE_SAMPLING_FLAGS=1` exists for old images. |
+| 2026-09-23 | **Corrected the draft-KV variable names to `LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K/_V`** (§3) — the previous `…_SPEC_DRAFT_TYPE_K/_V` does not exist upstream and was silently ignored, so the draft KV ran at f16 while the docs claimed q8_0. Fixed in `GOLDEN-CONFIG.md`, `docker-compose.yml` and `examples/qwen27b-server.sh`. Found during the issue #21 v0.5.0 validation; pre-existing, not a v0.5.0 regression. |
+| 2026-09-23 | **Added `DEBUG_FLAG` to the `server` Dockerfile stage (§2.1)** — `-v` is the only server argument with no `.set_env()` upstream, so it can only reach the binary via argv; the image entrypoint now injects it from a container variable (`-e DEBUG_FLAG=-v`). Default empty means no behaviour change. Without it, agent-task draft acceptance is unrecoverable. |

@@ -76,6 +76,15 @@ services:
       - ZES_ENABLE_SYSMAN=1
       # GGML_SYCL_FA_ONEDNN is intentionally unset: the source default is 1 (XMX oneDNN SDPA).
 
+      # --- logging ----------------------------------------------------------
+      # -v has NO upstream environment mapping, so the image entrypoint injects
+      # this word-split into argv. Empty default = no behaviour change.
+      # Enable for a test run to get per-request `print_timing` lines, which are
+      # the ONLY source of agent-task draft-acceptance rates:
+      #     DEBUG_FLAG=-v docker compose up -d
+      # See docs/GOLDEN-CONFIG.md section 2.1. Note it logs full request bodies.
+      - DEBUG_FLAG=${DEBUG_FLAG:-}
+
       # --- model ------------------------------------------------------------
       - LLAMA_ARG_MODEL=/models/Qwen3.8-27B-Q4_K_M.gguf
       - LLAMA_ARG_MMPROJ=/models/mmproj-Qwen3.8-27B-Q8_0.gguf
@@ -94,8 +103,8 @@ services:
       - LLAMA_ARG_SPEC_TYPE=draft-mtp
       - LLAMA_ARG_SPEC_DRAFT_N_MAX=3
       - LLAMA_ARG_SPEC_DRAFT_P_MIN=0.1
-      - LLAMA_ARG_SPEC_DRAFT_TYPE_K=q8_0
-      - LLAMA_ARG_SPEC_DRAFT_TYPE_V=q8_0
+      - LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K=q8_0
+      - LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_V=q8_0
 
       # --- chat / reasoning -------------------------------------------------
       - LLAMA_ARG_REASONING=off

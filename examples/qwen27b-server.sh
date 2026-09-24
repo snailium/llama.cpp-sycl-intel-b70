@@ -89,8 +89,8 @@ export LLAMA_ARG_SPEC_DRAFT_MODEL="$DRAFT"
 export LLAMA_ARG_SPEC_TYPE=draft-mtp
 export LLAMA_ARG_SPEC_DRAFT_N_MAX=3
 export LLAMA_ARG_SPEC_DRAFT_P_MIN=0.1
-export LLAMA_ARG_SPEC_DRAFT_TYPE_K=q8_0
-export LLAMA_ARG_SPEC_DRAFT_TYPE_V=q8_0
+export LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K=q8_0
+export LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_V=q8_0
 export LLAMA_ARG_REASONING=off
 export LLAMA_ARG_CHAT_TEMPLATE_KWARGS='{"enable_thinking":false,"preserve_thinking":false}'
 export LLAMA_ARG_N_PARALLEL=1
@@ -114,4 +114,13 @@ else
   export LLAMA_ARG_REPEAT_PENALTY="$REPEAT"
 fi
 
-exec llama-server "${SAMPLING_FLAGS[@]}" "$@"
+# --- verbose logging -------------------------------------------------------
+# `-v` is the ONE llama-server argument with no `LLAMA_ARG_*` mapping, so unlike
+# everything above it cannot be delivered by environment variable -- it must be
+# argv. Mirrors the Docker image's DEBUG_FLAG (docs/GOLDEN-CONFIG.md section 2.1):
+#     DEBUG_FLAG=-v ./qwen27b-server.sh
+# Word-split on purpose, so an empty value contributes no argument at all.
+# Without -v the agent-task draft-acceptance rates are unrecoverable.
+DEBUG_FLAG=${DEBUG_FLAG:-}
+
+exec llama-server $DEBUG_FLAG "${SAMPLING_FLAGS[@]}" "$@"
