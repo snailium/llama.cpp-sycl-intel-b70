@@ -35,7 +35,8 @@
 #   * **v0.4.1 (b10964) and everything older does NOT support them.** On such an
 #     image the variables are silently ignored and the server runs with its
 #     defaults (temp 0.8, top_p 0.95, ...), which quietly changes output quality
-#     without any error. The `:stable` tag was v0.4.1 when this file was written.
+#     without any error. The `:stable` tag was v0.4.1 when this file was written;
+#     it is v0.5.0 as of 2026-09-24, which is well above the floor.
 #   * **Any dev build before b11078 has the same gap.**
 #   * **v0.5.0 (>= b11146) is fine.**
 #
@@ -47,7 +48,7 @@ version: "3.8"
 
 services:
   llama-sycl-b70:
-    # Prebuilt golden image (llama.cpp v0.4.1 + compute-runtime 26.31.39395.13 + oneDNN/XMX).
+    # Prebuilt golden image (llama.cpp v0.5.0 + compute-runtime 26.35.39758.10 + oneDNN/XMX).
     image: ${B70_IMAGE:-ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:stable}
     # To build locally instead, comment out `image:` above and uncomment this block:
     # build:

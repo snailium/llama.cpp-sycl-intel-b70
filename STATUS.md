@@ -2,15 +2,18 @@
 
 **Focus:** an up-to-date llama.cpp + SYCL Docker image for the Intel Arc Pro B70 (and other Battlemage B-series).
 
-> **Golden configuration (current production, as of 2026-09-14):** prebuilt
-> `llama.cpp-sycl-b70:stable` image (llama.cpp **v0.4.1**, compute-runtime 26.31.39395.13,
-> oneDNN/XMX build) + **q8_0 KV / 131072 ctx + MTP3 with a Q8_0 MTP draft + Q8_0 mmproj**,
-> `--reasoning off` and template-level `enable_thinking:false`, official Qwen non-thinking sampling.
-> Full suite (T1–T5 + V1–V3) verified: **0 crashes**, text prefill 470–490 tok/s (570–600 in bursts),
-> decode 41–46 tok/s short-context / ~21 tok/s deep-context, draft acceptance 0.53–0.90.
+> **Golden configuration (current production, as of 2026-09-24):** prebuilt
+> `llama.cpp-sycl-b70:stable` image (llama.cpp **v0.5.0**, compute-runtime 26.35.39758.10,
+> IGC v2.41.5, Level Zero loader 1.32.0, oneDNN/XMX build) + **q8_0 KV / 131072 ctx + MTP3 with a
+> Q8_0 MTP draft + Q8_0 mmproj**, `--reasoning off` and template-level `enable_thinking:false`,
+> official Qwen non-thinking sampling.
+> Full suite (T1–T5 + V1–V3) verified **twice on the same digest**: **0 crashes**, text prefill
+> 440–530 tok/s, decode 40–45 tok/s short-context / ~21 tok/s deep-context, draft acceptance 0.49–0.88.
 >
 > **Canonical description and image digest: [`docs/GOLDEN-CONFIG.md`](docs/GOLDEN-CONFIG.md).**
-> Evidence: [`benchmark/results/2026-09-14-v041-stable.md`](benchmark/results/2026-09-14-v041-stable.md).
+> Evidence: [`2026-09-23-issue21-v050-stable.md`](benchmark/results/2026-09-23-issue21-v050-stable.md)
+> and [`…-retest.md`](benchmark/results/2026-09-23-issue21-v050-retest.md).
+> Previous stable (rollback point): v0.4.1, digest `sha256:d7f30320…`.
 > Mirrors: [`examples/qwen27b-server.sh`](examples/qwen27b-server.sh), [`docker-compose.yml`](docker-compose.yml).
 
 ## Current default pins in `.devops/intel.Dockerfile`
@@ -61,4 +64,4 @@ All major features remain enabled: Flash Attention, reorder kernels, MTP / specu
 - Add benchmark data in issues/PRs (use `benchmark/METHODOLOGY.md`, put reports under `benchmark/results/`).
 - Improve docs for multi-GPU or specific model families.
 
-Last updated: 2026-09-14 (golden config established with llama.cpp v0.4.1).
+Last updated: 2026-09-24 (llama.cpp v0.5.0 promoted to `:stable` from issue #21).

@@ -12,13 +12,26 @@
 
 | Item | Value |
 |---|---|
-| Image (pinned) | `ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:server-c26.35.39758.10-v0.4.1` |
+| Image (pinned) | `ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:server-c26.35.39758.10-v0.5.0` |
 | Image (floating) | `…:stable` |
-| Digest (both tags) | `sha256:d7f303202d55357da11e3e6f0c7dae3bed6f381dbeb930ead4208d0fcb1742f5` |
-| llama.cpp | v0.4.1 (upstream tag; build commit `b29c606`) |
-| Intel stack | compute-runtime `26.35.39758.10` / IGC `v2.41.5` / Level Zero loader `1.28.6` |
+| Digest (both tags) | `sha256:a7106ff20d67f1784bde2c5e2cdcf4fc0dc7fabb13161b62acef338313f85a79` |
+| llama.cpp | v0.5.0 (in-image `libllama.so.0.5.0` / `libggml-base.so.0.25.1`) |
+| Intel stack | compute-runtime `26.35.39758.10` (`libze_intel_gpu.so.1.17.39758`) / IGC `v2.41.5+1788943183` / Level Zero loader `1.32.0` |
 | oneDNN / XMX | `-DGGML_SYCL_DNN=ON`; `libdnnl.so.3` linked; runtime gate `GGML_SYCL_FA_ONEDNN` **defaults to 1** |
 | Entrypoint | `/app/llama-server` (image default — **never override it**) |
+| Rollback point | `sha256:d7f303202d55357da11e3e6f0c7dae3bed6f381dbeb930ead4208d0fcb1742f5` (v0.4.1) |
+
+Promoted 2026-09-24 from issue [#21](https://github.com/snailium/llama.cpp-sycl-intel-b70/issues/21)
+via `promote-stable.yml`, with the digest guard set to the tested digest. Validated by **two**
+independent full-suite passes — see [`benchmark/results/2026-09-23-issue21-v050-stable.md`](../benchmark/results/2026-09-23-issue21-v050-stable.md)
+and [`…-retest.md`](../benchmark/results/2026-09-23-issue21-v050-retest.md).
+
+The Intel stack is **byte-identical** to the previous stable, so this is a **llama.cpp-only change**
+(v0.4.1 → v0.5.0); the two passes bracket the baseline on every task, i.e. no measured regression.
+
+> ⚠️ **The promoted image predates the `DEBUG_FLAG` change (commit `f0cf4df`).** Its entrypoint is
+> still `["/app/llama-server"]`, so `-e DEBUG_FLAG=-v` is **inert** on this digest — pass `-v` as a
+> real argument, or rebuild. See §2.1.
 
 Verify a pulled image before serving:
 
@@ -349,11 +362,12 @@ Reading the numbers:
    explicit user consent. Read-only inspection (`docker logs`, `docker inspect`, `docker ps`) is fine.
 2. **One GPU, one server.** A second llama.cpp container cannot co-exist with this one on the single
    card (VRAM), so a test image must replace it — not run beside it.
-3. **Promote by digest, never by moving a tag by hand** — see the GHCR promote procedure in the
-   `gh-credentials-push` skill.
-4. **Rollback point**: previous stable digest `sha256:5af1e2290fc53930a5f323ac5d26dd9faa9737109336ecdc18aee085b20ef25b`
-   (compute-runtime `26.31.39395.13`, the last pre-driver-bump stable). Roll back by stopping the
-   current container and starting one from that digest.
+3. **Promote by digest, never by moving a tag by hand** — run `promote-stable.yml` with
+   `expected_digest` set to the tested digest; the workflow verifies it and refuses a mismatch.
+4. **Rollback point**: `sha256:d7f303202d55357da11e3e6f0c7dae3bed6f381dbeb930ead4208d0fcb1742f5`
+   (v0.4.1, the stable this replaced on 2026-09-24). Roll back by stopping the current container and
+   starting one from that digest. (Older: `sha256:5af1e229…`, compute-runtime `26.31.39395.13`, the
+   last pre-driver-bump stable.)
 5. Any configuration change gets its own dated entry below, and any superseded document gets a
    `Superseded by …` line at the top.
 
@@ -377,4 +391,5 @@ Reading the numbers:
 | 2026-09-23 | Issue #20 dev candidate (b11117, digest `sha256:30159fab…`) passed the full battery 8/8 with zero crashes, no buffer splitting, and no prefill regression (±3 %). **First image in which the Level Zero packaging fix is actually present**: it ships loader `1.32.0` (was `1.28.6` in #18/#19), so this candidate moves both the llama.cpp build and the L0 loader — see the note on the §9 `LEVEL-ZERO-VERSION-DISCREPANCY.md` row below. **Not** promoted to `:stable`; dev channel only, pending a second clean pass on the same digest and a stated reason for the loader bump. Report: [`benchmark/results/2026-09-23-issue20-b11117-dev.md`](../benchmark/results/2026-09-23-issue20-b11117-dev.md). |
 | 2026-09-23 | **§3 rewritten to the `LLAMA_ARG_*` environment-variable form**; `docker-compose.yml` and `examples/qwen27b-server.sh` now pass **no flags at all**. Verified end-to-end on b11117: launched with env only, then read the values back from `/props` (`n_ctx 131072`, `top_p 0.80`, `top_k 20`, `min_p 0.0`, `presence_penalty 1.5`, `frequency_penalty 0.0`, `repeat_penalty 1.0`) and ran a real completion. Added the **version floor**: the six sampling variables need **>= b11078** (commit `e0dff5847`, #27380) and are *silently ignored* on v0.4.1 and older, so `USE_SAMPLING_FLAGS=1` exists for old images. |
 | 2026-09-23 | **Corrected the draft-KV variable names to `LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K/_V`** (§3) — the previous `…_SPEC_DRAFT_TYPE_K/_V` does not exist upstream and was silently ignored, so the draft KV ran at f16 while the docs claimed q8_0. Fixed in `GOLDEN-CONFIG.md`, `docker-compose.yml` and `examples/qwen27b-server.sh`. Found during the issue #21 v0.5.0 validation; pre-existing, not a v0.5.0 regression. |
-| 2026-09-23 | **Added `DEBUG_FLAG` to the `server` Dockerfile stage (§2.1)** — `-v` is the only server argument with no `.set_env()` upstream, so it can only reach the binary via argv; the image entrypoint now injects it from a container variable (`-e DEBUG_FLAG=-v`). Default empty means no behaviour change. Without it, agent-task draft acceptance is unrecoverable. |
+| 2026-09-23 | **Added `DEBUG_FLAG` to the `server` Dockerfile stage (§2.1)** — `-v` is the only server argument with no `.set_env()` upstream, so it can only reach the binary via argv; the image entrypoint now injects it from a container variable (`-e DEBUG_FLAG=-v`). Default empty means no behaviour change. Without it, agent-task draft acceptance is unrecoverable. ⚠️ **The image promoted below predates this change, so `DEBUG_FLAG` is inert on it — rebuild required.** |
+| 2026-09-24 | **PROMOTED issue #21 candidate to `:stable`** — `sha256:a7106ff2…` (llama.cpp **v0.5.0**), replaced `sha256:d7f30320…` (v0.4.1). Intel stack byte-identical to the outgoing stable, so this is a **llama.cpp-only change**. Validated by two independent full-suite passes (`2026-09-23-issue21-v050-stable.md` + `…-retest.md`): 8/8 tasks, zero crash/OOM/device-loss signatures over ~1.35 M log lines across both runs, unsplit 17402.38 MiB main buffer, `RestartCount=0`. The first pass flagged a 4–6 % decode delta below baseline; the **second pass at matched draft-KV precision showed it was noise** and retracted it. Two operational findings recorded as open issues rather than blockers: **t5 answer variance** (same digest answered 258.6 mm vs 217.0 cm — the latter a 10× unit error) and **SMG not self-healing** after a worker restart (worker `/health` ok while `/workers` reported `failed`; failover masked it; `docker restart smg` cleared it). |
