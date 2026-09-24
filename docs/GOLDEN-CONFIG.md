@@ -203,8 +203,23 @@ Plus the runtime variables from §2 (`ONEAPI_DEVICE_SELECTOR`,
 The two draft-KV variables are spelled **`LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K`** and
 **`_V`**, *not* `LLAMA_ARG_SPEC_DRAFT_TYPE_K/_V`. This document carried the wrong
 names until 2026-09-23, and because an unknown `LLAMA_ARG_*` variable is **silently
-ignored** — no warning, no error — the draft KV ran at its **f16 default** in every
-run that used the env-var form while the docs claimed `q8_0`.
+ignored** — no warning, no error — a run that delivered the draft KV through those
+*wrong env-var names* would fall back to the **f16 default** while the docs claimed
+`q8_0`.
+
+**No recorded measurement was affected.** Every baseline run predates the env-var
+form and passed the draft KV as a **flag** —
+
+```bash
+# start-v041-prodparams.sh (v0.4.1 production-params run)
+--spec-draft-type-k q8_0 --spec-draft-type-v q8_0
+```
+
+— and `--spec-draft-type-k` is the correct flag spelling (only the *env var* differs,
+see below). Confirmed against the baseline's own server log rather than inferred from
+docs: `test-v041/server-v041.log` → `cache_k=q8_0, cache_v=q8_0`. So the baselines,
+and both issue #21 validation passes, all ran the draft KV at **q8_0** (272 MiB). This
+was a latent trap in the env-var form, not a defect in any past result.
 
 The confusion is upstream's, not ours: the CLI flag and the env var deliberately
 differ in shape.
@@ -390,6 +405,6 @@ Reading the numbers:
 | 2026-09-20 | Issue #19 dev candidate (`60081bb`, digest `sha256:4dc70c03…`) passed the full battery 8/8 with zero crashes; **not** promoted to `:stable` (parity, no stated reason for the llama.cpp bump). Published as `:server-dev` + `:server-dev-b11046-c26.35.39758.10`. Report: [`benchmark/results/2026-09-20-issue19-b11046-dev.md`](../benchmark/results/2026-09-20-issue19-b11046-dev.md). |
 | 2026-09-23 | Issue #20 dev candidate (b11117, digest `sha256:30159fab…`) passed the full battery 8/8 with zero crashes, no buffer splitting, and no prefill regression (±3 %). **First image in which the Level Zero packaging fix is actually present**: it ships loader `1.32.0` (was `1.28.6` in #18/#19), so this candidate moves both the llama.cpp build and the L0 loader — see the note on the §9 `LEVEL-ZERO-VERSION-DISCREPANCY.md` row below. **Not** promoted to `:stable`; dev channel only, pending a second clean pass on the same digest and a stated reason for the loader bump. Report: [`benchmark/results/2026-09-23-issue20-b11117-dev.md`](../benchmark/results/2026-09-23-issue20-b11117-dev.md). |
 | 2026-09-23 | **§3 rewritten to the `LLAMA_ARG_*` environment-variable form**; `docker-compose.yml` and `examples/qwen27b-server.sh` now pass **no flags at all**. Verified end-to-end on b11117: launched with env only, then read the values back from `/props` (`n_ctx 131072`, `top_p 0.80`, `top_k 20`, `min_p 0.0`, `presence_penalty 1.5`, `frequency_penalty 0.0`, `repeat_penalty 1.0`) and ran a real completion. Added the **version floor**: the six sampling variables need **>= b11078** (commit `e0dff5847`, #27380) and are *silently ignored* on v0.4.1 and older, so `USE_SAMPLING_FLAGS=1` exists for old images. |
-| 2026-09-23 | **Corrected the draft-KV variable names to `LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K/_V`** (§3) — the previous `…_SPEC_DRAFT_TYPE_K/_V` does not exist upstream and was silently ignored, so the draft KV ran at f16 while the docs claimed q8_0. Fixed in `GOLDEN-CONFIG.md`, `docker-compose.yml` and `examples/qwen27b-server.sh`. Found during the issue #21 v0.5.0 validation; pre-existing, not a v0.5.0 regression. |
+| 2026-09-23 | **Corrected the draft-KV variable names to `LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K/_V`** (§3) — the previous `…_SPEC_DRAFT_TYPE_K/_V` does not exist upstream and is silently ignored, so an env-var-form launch using those names would run the draft KV at f16 while the docs claimed q8_0. Fixed in `GOLDEN-CONFIG.md`, `docker-compose.yml` and `examples/qwen27b-server.sh`. **No past measurement was affected** — every baseline ran the draft KV via the *flag* form (`--spec-draft-type-k q8_0`), confirmed from `test-v041/server-v041.log` (`cache_k=q8_0`). Found during the issue #21 v0.5.0 validation; pre-existing, not a v0.5.0 regression. |
 | 2026-09-23 | **Added `DEBUG_FLAG` to the `server` Dockerfile stage (§2.1)** — `-v` is the only server argument with no `.set_env()` upstream, so it can only reach the binary via argv; the image entrypoint now injects it from a container variable (`-e DEBUG_FLAG=-v`). Default empty means no behaviour change. Without it, agent-task draft acceptance is unrecoverable. ⚠️ **The image promoted below predates this change, so `DEBUG_FLAG` is inert on it — rebuild required.** |
 | 2026-09-24 | **PROMOTED issue #21 candidate to `:stable`** — `sha256:a7106ff2…` (llama.cpp **v0.5.0**), replaced `sha256:d7f30320…` (v0.4.1). Intel stack byte-identical to the outgoing stable, so this is a **llama.cpp-only change**. Validated by two independent full-suite passes (`2026-09-23-issue21-v050-stable.md` + `…-retest.md`): 8/8 tasks, zero crash/OOM/device-loss signatures over ~1.35 M log lines across both runs, unsplit 17402.38 MiB main buffer, `RestartCount=0`. The first pass flagged a 4–6 % decode delta below baseline; the **second pass at matched draft-KV precision showed it was noise** and retracted it. Two operational findings recorded as open issues rather than blockers: **t5 answer variance** (same digest answered 258.6 mm vs 217.0 cm — the latter a 10× unit error) and **SMG not self-healing** after a worker restart (worker `/health` ok while `/workers` reported `failed`; failover masked it; `docker restart smg` cleared it). |
