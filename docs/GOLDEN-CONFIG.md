@@ -14,12 +14,41 @@
 |---|---|
 | Image (pinned) | `ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:server-c26.35.39758.10-v0.5.0` |
 | Image (floating) | `…:stable` |
-| Digest (both tags) | `sha256:a7106ff20d67f1784bde2c5e2cdcf4fc0dc7fabb13161b62acef338313f85a79` |
+| Image (last known-good) | `…:latest` — see §1.1 |
+| Digest (all three tags) | `sha256:a7106ff20d67f1784bde2c5e2cdcf4fc0dc7fabb13161b62acef338313f85a79` |
 | llama.cpp | v0.5.0 (in-image `libllama.so.0.5.0` / `libggml-base.so.0.25.1`) |
 | Intel stack | compute-runtime `26.35.39758.10` (`libze_intel_gpu.so.1.17.39758`) / IGC `v2.41.5+1788943183` / Level Zero loader `1.32.0` |
 | oneDNN / XMX | `-DGGML_SYCL_DNN=ON`; `libdnnl.so.3` linked; runtime gate `GGML_SYCL_FA_ONEDNN` **defaults to 1** |
 | Entrypoint | `/app/llama-server` (image default — **never override it**) |
 | Rollback point | `sha256:d7f303202d55357da11e3e6f0c7dae3bed6f381dbeb930ead4208d0fcb1742f5` (v0.4.1) |
+
+### 1.1 Tag semantics
+
+| Tag | Moves when | Meaning |
+|---|---|---|
+| `:server-dev` | `promote-dev.yml` | current dev channel |
+| `:stable` + `:server-c<CR>-v<X.Y>` | `promote-stable.yml` | stable release |
+| **`:latest`** | **any** promote — but only if the candidate is a **newer build** | last tested + promoted image, on **either** channel |
+
+**`:latest` is monotonic by image build date.** It tracks the most recently *built*
+image that we tested and promoted, and never moves backwards: promoting an older
+digest (e.g. re-promoting a stable release after a dev build has already advanced
+`:latest`) leaves `:latest` where it is and logs
+`⊘ :latest NOT moved — this image is OLDER than :latest`.
+
+The rule exists so `docker pull …:latest` never hands someone bits older than what
+they already got. Decide by **image build time**, not by tag name or promote order —
+a dev tag can legitimately point at newer bits than a stable tag promoted afterwards.
+
+Both promote workflows apply this automatically after moving their channel tag.
+The local script does the same; set `LATEST=0` to skip it:
+
+```bash
+./scripts/promote-b70-image.sh <digest> v0.5.1                 # stable channel
+./scripts/promote-b70-image.sh <digest> "" <repo> dev          # dev channel
+LATEST=0 ./scripts/promote-b70-image.sh <digest> v0.5.1        # skip :latest
+```
+
 
 Promoted 2026-09-24 from issue [#21](https://github.com/snailium/llama.cpp-sycl-intel-b70/issues/21)
 via `promote-stable.yml`, with the digest guard set to the tested digest. Validated by **two**
@@ -408,3 +437,4 @@ Reading the numbers:
 | 2026-09-23 | **Corrected the draft-KV variable names to `LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K/_V`** (§3) — the previous `…_SPEC_DRAFT_TYPE_K/_V` does not exist upstream and is silently ignored, so an env-var-form launch using those names would run the draft KV at f16 while the docs claimed q8_0. Fixed in `GOLDEN-CONFIG.md`, `docker-compose.yml` and `examples/qwen27b-server.sh`. **No past measurement was affected** — every baseline ran the draft KV via the *flag* form (`--spec-draft-type-k q8_0`), confirmed from `test-v041/server-v041.log` (`cache_k=q8_0`). Found during the issue #21 v0.5.0 validation; pre-existing, not a v0.5.0 regression. |
 | 2026-09-23 | **Added `DEBUG_FLAG` to the `server` Dockerfile stage (§2.1)** — `-v` is the only server argument with no `.set_env()` upstream, so it can only reach the binary via argv; the image entrypoint now injects it from a container variable (`-e DEBUG_FLAG=-v`). Default empty means no behaviour change. Without it, agent-task draft acceptance is unrecoverable. ⚠️ **The image promoted below predates this change, so `DEBUG_FLAG` is inert on it — rebuild required.** |
 | 2026-09-24 | **PROMOTED issue #21 candidate to `:stable`** — `sha256:a7106ff2…` (llama.cpp **v0.5.0**), replaced `sha256:d7f30320…` (v0.4.1). Intel stack byte-identical to the outgoing stable, so this is a **llama.cpp-only change**. Validated by two independent full-suite passes (`2026-09-23-issue21-v050-stable.md` + `…-retest.md`): 8/8 tasks, zero crash/OOM/device-loss signatures over ~1.35 M log lines across both runs, unsplit 17402.38 MiB main buffer, `RestartCount=0`. The first pass flagged a 4–6 % decode delta below baseline; the **second pass at matched draft-KV precision showed it was noise** and retracted it. Two operational findings recorded as open issues rather than blockers: **t5 answer variance** (same digest answered 258.6 mm vs 217.0 cm — the latter a 10× unit error) and **SMG not self-healing** after a worker restart (worker `/health` ok while `/workers` reported `failed`; failover masked it; `docker restart smg` cleared it). |
+| 2026-09-24 | Added `:latest` = last tested+promoted image (monotonic by image build date) to both promote workflows and `promote-b70-image.sh`; added the dev/stable `channel` argument to the script; §1.1 documents the tag semantics. Bootstrapped `:latest` to the v0.5.0 stable digest `sha256:a7106ff2…`, which was the newest build at the time. |

@@ -68,6 +68,60 @@ jobs:
           fi
           echo "OK: :server-dev == ${{ inputs.source_tag }} @ $NEW"
 
+      - name: Advance :latest (monotonic by build date)
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ github.repository }}/llama-sycl-b70"
+          SRC="$IMAGE:${{ inputs.source_tag }}"
+          LAT="$IMAGE:latest"
+
+          # :latest = "last tested + promoted image", on EITHER channel. It is
+          # monotonic by IMAGE BUILD TIME, not by promote order: a dev build can
+          # legitimately be newer than a stable release promoted afterwards, and
+          # `docker pull :latest` must never hand someone bits older than what
+          # they already got. So an older digest leaves :latest untouched.
+          #
+          # We read the image's build time (leading field of `{{.Image}}`), NOT the
+          # manifest push time — re-pushing a tag must not make old bits look new.
+          # `{{.Image}}` prints a Go struct, so match only the timestamp prefix of
+          # the first line; the rest of the struct is very long and multi-line.
+          img_created() {
+            docker buildx imagetools inspect "$1" --format '{{.Image}}' 2>/dev/null \
+              | head -1 \
+              | sed -nE 's/^\{([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})\.[0-9]+ \+0000 UTC.*/\1 +0000/p'
+          }
+          to_epoch() {
+            [ -n "$1" ] || return 1
+            date -u -d "$1" +%s 2>/dev/null
+          }
+
+          NEW_TS=$(img_created "$SRC")
+          CUR_TS=$(img_created "$LAT" || true)
+          NEW_E=$(to_epoch "$NEW_TS" || true)
+          CUR_E=$(to_epoch "$CUR_TS" || true)
+
+          echo "candidate build time : ${NEW_TS:-<unreadable>}"
+          echo ":latest   build time : ${CUR_TS:-<none>}"
+
+          if [ -z "$CUR_E" ]; then
+            if docker buildx imagetools inspect "$LAT" >/dev/null 2>&1; then
+              echo "::warning:::latest exists but its build time is unreadable; not moving it"
+            else
+              docker buildx imagetools create --tag "$LAT" "$SRC"
+              echo "OK: :latest created (${NEW_TS:-unknown time})"
+            fi
+          elif [ -z "$NEW_E" ]; then
+            echo "::warning::cannot read the candidate's build time; leaving :latest untouched"
+          elif [ "$NEW_E" -gt "$CUR_E" ]; then
+            docker buildx imagetools create --tag "$LAT" "$SRC"
+            echo "OK: :latest advanced $CUR_TS -> $NEW_TS"
+          elif [ "$NEW_E" -eq "$CUR_E" ]; then
+            echo "OK: :latest already at this build; no change"
+          else
+            echo "OK: :latest NOT moved — candidate ($NEW_TS) is OLDER than :latest ($CUR_TS)"
+            echo "    :latest is monotonic by build date; promoting older bits never pulls it back."
+          fi
+
       - name: Confirm :stable was not touched
         run: |
           set -euo pipefail
