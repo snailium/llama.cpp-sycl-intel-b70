@@ -19,10 +19,16 @@ ARG LEVEL_ZERO_VERSION=1.32.0
 # by design. The workflows derive this suffix from the base image tag at build
 # time (LEVEL_ZERO_UBUNTU_VERSION mirrors the highest L0 asset available).
 ARG LEVEL_ZERO_UBUNTU_VERSION=u24.04
-ARG COMPUTE_RUNTIME_VERSION=26.31.39395.13
-ARG COMPUTE_RUNTIME_VERSION_FULL=26.31.39395.13-0
-ARG IGC_VERSION=v2.40.13
-ARG IGC_VERSION_FULL=2_2.40.13+22418
+ARG COMPUTE_RUNTIME_VERSION=26.35.39758.10
+ARG COMPUTE_RUNTIME_VERSION_FULL=26.35.39758.10-0
+ARG IGC_VERSION=v2.41.5
+# IGC_VERSION_FULL is the DEB FILENAME fragment, not the dpkg version. It must match
+# what intel-graphics-compiler publishes for that tag, e.g.
+#   intel-igc-core-2_2.41.5+22716_amd64.deb  ->  IGC_VERSION_FULL=2_2.41.5+22716
+# Taken from compute-runtime 26.35.39758.10's own install list. Comparing this field
+# against `dpkg -l` (which reports 2.41.5) produces a false mismatch — compare
+# IGC_VERSION instead.
+ARG IGC_VERSION_FULL=2_2.41.5+22716
 ARG IGDGMM_VERSION=22.10.0
 ## Build Image (web UI)
 
