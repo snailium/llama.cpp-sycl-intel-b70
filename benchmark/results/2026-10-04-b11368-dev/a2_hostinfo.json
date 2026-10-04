@@ -1,0 +1,71 @@
+```json
+{
+  "hostname": "PC-DEV",
+  "os": {
+    "name": "Debian GNU/Linux 12 (bookworm)",
+    "kernel": "Linux 7.0.0-34-generic #34-Ubuntu SMP PREEMPT_DYNAMIC x86_64",
+    "architecture": "x86_64"
+  },
+  "cpu": {
+    "model": "Intel(R) Core(TM) i5-7500T CPU @ 2.70GHz",
+    "vendor": "GenuineIntel",
+    "sockets": 1,
+    "cores": 4,
+    "threads_per_core": 1,
+    "logical_cpus": 4,
+    "base_freq_ghz": 2.70,
+    "max_turbo_ghz": 3.30,
+    "min_freq_ghz": 0.80,
+    "l1d_cache": "128 KiB (4 instances)",
+    "l1i_cache": "128 KiB (4 instances)",
+    "l2_cache": "1 MiB (4 instances)",
+    "l3_cache": "6 MiB (1 instance)",
+    "virtualization": "VT-x",
+    "features": ["avx", "avx2", "aes", "fma", "sse4_2", "bmi2", "rdseed", "adx"]
+  },
+  "memory": {
+    "total": "14 GiB",
+    "used": "6.6 GiB",
+    "free": "464 MiB",
+    "buff_cache": "8.3 GiB",
+    "available": "7.9 GiB",
+    "swap_total": "4.0 GiB",
+    "swap_used": "2.0 GiB"
+  },
+  "disk": [
+    {
+      "filesystem": "overlay (backed by /dev/nvme0n1p2)",
+      "size": "457 GB",
+      "used": "287 GB",
+      "available": "147 GB",
+      "use_percent": 67,
+      "mount": "/"
+    },
+    {
+      "filesystem": "/dev/nvme0n1p2",
+      "size": "457 GB",
+      "used": "287 GB",
+      "available": "147 GB",
+      "use_percent": 67,
+      "mount": "/dsh-home"
+    }
+  ],
+  "gpu": {
+    "detected": false,
+    "note": "未找到 nvidia-smi / lspci GPU 设备信息，本机似乎没有独立 GPU（或容器内不可见）"
+  },
+  "runtime": {
+    "uptime": "4 days, 1 hour 47 min",
+    "load_average": [0.73, 0.67, 0.64],
+    "containerized": true,
+    "note": "overlay 根文件系统 + tmpfs /proc 挂载表明运行在容器环境中"
+  }
+}
+```
+
+要点说明：
+- **CPU**：i5-7500T（4 核 4 线程，基础 2.7GHz，睿频 3.3GHz），支持 AVX2/AES。
+- **内存**：14 GiB 总容量，当前可用约 7.9 GiB；Swap 4 GiB 已用一半。
+- **磁盘**：NVMe 单盘 457 GB，已用 67%（剩 147 GB）。
+- **GPU**：未检测到独立 GPU（`nvidia-smi`、`lspci` 均无结果），可能是无独显或容器内不可见。
+- **环境**：Debian 12 (bookworm)，内核 7.0.0，hostname `PC-DEV`，overlay 根文件系统表明当前运行在容器中——因此看到的是宿主机资源视图，但部分硬件细节（如 GPU）可能被容器隔离。

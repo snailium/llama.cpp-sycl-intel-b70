@@ -52,6 +52,11 @@ Two rules drive every recommendation:
 | 2026-08-25 | [v030-f16-96k-dnn-mtp3-q4](./results/2026-08-25-v030-f16-96k-dnn-mtp3-q4.md) | v030-f16-96k-dnn-mtp3-q4 | DNN/XMX **stable**: prefill 392, decode 26.2, acc 0.573, +1.5GB VRAM (R2) |
 | 2026-09-04 | [v040-stable](./results/2026-09-04-v040-stable.md) | mtp3-q8-128k (golden shape) | **Full suite pass**, 0 crashes; v0.4.0 promoted to `:stable` |
 | 2026-09-14 | [v041-stable](./results/2026-09-14-v041-stable.md) | [golden-v041-q8-128k-mtp3](./configs/golden-v041-q8-128k-mtp3.md) | **Full suite pass (GOLDEN)**, 0 crashes; decode 41.4/46.2/20.82/37.57/33.93, v0.4.1 promoted to `:stable` |
+| 2026-09-20 | [issue18-c26.35.39758](./results/2026-09-20-issue18-c26.35.39758.md) | golden | Intel stack candidate (compute-runtime 26.35.39758.10) |
+| 2026-09-20 | [issue19-b11046-dev](./results/2026-09-20-issue19-b11046-dev.md) | golden | dev image validation |
+| 2026-09-23 | [issue20-b11117-dev](./results/2026-09-23-issue20-b11117-dev.md) | golden | dev image validation |
+| 2026-09-23 | [issue21-v050-stable](./results/2026-09-23-issue21-v050-stable.md) | golden | **Full suite pass**, 0 crashes; v0.5.0 promoted to `:stable` |
+| 2026-10-04 | [b11368-dev](./results/2026-10-04-b11368-dev/) | golden | **8/8 pass**, 0 crashes; A1 acc 52.8 % (workload-bound, 0.87 before the final report), promoted to `:server-dev` + `:latest` |
 
 ## Incidents
 
