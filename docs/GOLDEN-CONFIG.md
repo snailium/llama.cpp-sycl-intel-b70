@@ -12,15 +12,15 @@
 
 | Item | Value |
 |---|---|
-| Image (pinned) | `ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:server-c26.35.39758.10-v0.5.0` |
+| Image (pinned) | `ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:server-c26.35.39758.10-v0.6.0` |
 | Image (floating) | `…:stable` |
 | Image (last known-good) | `…:latest` — see §1.1 |
-| Digest (all three tags) | `sha256:a7106ff20d67f1784bde2c5e2cdcf4fc0dc7fabb13161b62acef338313f85a79` |
-| llama.cpp | v0.5.0 (in-image `libllama.so.0.5.0` / `libggml-base.so.0.25.1`) |
+| Digest (all four tags) | `sha256:b5799bf3f66bc1fb5ed6e52534e8f6e9e84bab57105f83ae210fd168208d8b41` |
+| llama.cpp | v0.6.0 (in-image `libllama.so.0.6.0` / `libggml-base.so.0.26.0`) |
 | Intel stack | compute-runtime `26.35.39758.10` (`libze_intel_gpu.so.1.17.39758`) / IGC `v2.41.5+1788943183` / Level Zero loader `1.32.0` |
 | oneDNN / XMX | `-DGGML_SYCL_DNN=ON`; `libdnnl.so.3` linked; runtime gate `GGML_SYCL_FA_ONEDNN` **defaults to 1** |
 | Entrypoint | `/app/llama-server` (image default — **never override it**) |
-| Rollback point | `sha256:d7f303202d55357da11e3e6f0c7dae3bed6f381dbeb930ead4208d0fcb1742f5` (v0.4.1) |
+| Rollback point | `sha256:b5799bf3f66bc1fb5ed6e52534e8f6e9e84bab57105f83ae210fd168208d8b41` (v0.6.0, current). Previous: `sha256:a7106ff20d67f1784bde2c5e2cdcf4fc0dc7fabb13161b62acef338313f85a79` (v0.5.0) |
 
 ### 1.1 Tag semantics
 
@@ -364,12 +364,29 @@ docker inspect <container> --format 'restart={{.RestartCount}} status={{.State.S
 
 Model load takes ~2 minutes (17.7 GB main + draft + mmproj) before `/v1/models` answers 200.
 
-## 6. Expected performance (v0.4.1 full suite, golden config)
+## 6. Expected performance (v0.6.0 full suite, golden config)
 
-Measured 2026-09-14 on a single Arc Pro B70 with the exact configuration above, on the
-compute-runtime `26.31.39395.13` artifact. Superseded runs on `26.35.39758.10` (issues #18, #19)
-found these numbers **unchanged within noise** — see each report's comparison table.
-Full report: [`benchmark/results/2026-09-14-v041-stable.md`](../benchmark/results/2026-09-14-v041-stable.md).
+Measured **2026-10-05** on a single Arc Pro B70 with the exact configuration above, on
+llama.cpp **v0.6.0** / compute-runtime `26.35.39758.10`. Full report:
+[`benchmark/results/2026-10-05-issue26-v060-stable/REPORT.md`](../benchmark/results/2026-10-05-issue26-v060-stable/REPORT.md).
+
+Agent-task (A1-A3) rows aggregate the task's own calls; direct tasks (T1/T2/V1-V3) are one
+request each. Prefill for agent rows is the largest-prompt call, TTFT the first.
+
+| Task | fill (tok/s) | TTFT s | decode (tok/s) | draft acc |
+|---|---|---|---|---|
+| T1 (html) | 62.4 (43-tok prompt) | 0.69 | 42.18 | 0.737 |
+| T2 (svg) | 50.3 (32-tok prompt) | 0.64 | 45.74 | 0.857 |
+| A1 (security review, agent) | 580.4 | 1.06 | 22.91 | 0.528 |
+| A2 (hostinfo, agent) | 595.3 | 0.75 | 40.58 | 0.765 |
+| A3 (snowfall, agent) | 527.5 | 0.74 | 32.22 | 0.740 |
+| V1 (game, vision) | 48.1 | 73.35 | 34.55 | 0.560 |
+| V2 (pcb, vision) | 78.7 | 13.52 | 36.10 | 0.588 |
+| V3 (tire, vision) | 45.0 | 92.42 | 32.70 | 0.509 |
+
+The **v0.4.1 baseline** (compute-runtime `26.31.39395.13`, 2026-09-14) remains useful as a
+long-range reference — the earlier "unchanged within noise" runs on `26.35.39758.10` (issues
+#18, #19) are superseded by the table above:
 
 | Task | fill (tok/s) | TTFT med/mean | decode (tok/s) | draft acc |
 |---|---|---|---|---|
@@ -438,3 +455,5 @@ Reading the numbers:
 | 2026-09-23 | **Added `DEBUG_FLAG` to the `server` Dockerfile stage (§2.1)** — `-v` is the only server argument with no `.set_env()` upstream, so it can only reach the binary via argv; the image entrypoint now injects it from a container variable (`-e DEBUG_FLAG=-v`). Default empty means no behaviour change. Without it, agent-task draft acceptance is unrecoverable. ⚠️ **The image promoted below predates this change, so `DEBUG_FLAG` is inert on it — rebuild required.** |
 | 2026-09-24 | **PROMOTED issue #21 candidate to `:stable`** — `sha256:a7106ff2…` (llama.cpp **v0.5.0**), replaced `sha256:d7f30320…` (v0.4.1). Intel stack byte-identical to the outgoing stable, so this is a **llama.cpp-only change**. Validated by two independent full-suite passes (`2026-09-23-issue21-v050-stable.md` + `…-retest.md`): 8/8 tasks, zero crash/OOM/device-loss signatures over ~1.35 M log lines across both runs, unsplit 17402.38 MiB main buffer, `RestartCount=0`. The first pass flagged a 4–6 % decode delta below baseline; the **second pass at matched draft-KV precision showed it was noise** and retracted it. Two operational findings recorded as open issues rather than blockers: **t5 answer variance** (same digest answered 258.6 mm vs 217.0 cm — the latter a 10× unit error) and **SMG not self-healing** after a worker restart (worker `/health` ok while `/workers` reported `failed`; failover masked it; `docker restart smg` cleared it). |
 | 2026-09-24 | Added `:latest` = last tested+promoted image (monotonic by image build date) to both promote workflows and `promote-b70-image.sh`; added the dev/stable `channel` argument to the script; §1.1 documents the tag semantics. Bootstrapped `:latest` to the v0.5.0 stable digest `sha256:a7106ff2…`, which was the newest build at the time. |
+| 2026-10-05 | **PROMOTED issue #26 candidate to `:stable`** — `sha256:b5799bf3…` (llama.cpp **v0.6.0**), replaced `sha256:a7106ff2…` (v0.5.0). Intel stack byte-identical to the outgoing stable, so this is a **llama.cpp-only change** (`0.5.0-dev` → `v0.6.0`; in-image `libllama.so.0.6.0` / `libggml-base.so.0.26.0`). Full suite 8/8, zero crash/OOM/device-loss signatures over 771,297 log lines, unsplit `17402.38 MiB` main buffer, `RestartCount=0`, no leak onto the XTX. `:latest` advanced `2026-10-03` → `2026-10-05`. Report: [`benchmark/results/2026-10-05-issue26-v060-stable/REPORT.md`](../benchmark/results/2026-10-05-issue26-v060-stable/REPORT.md). Two model-quality defects recorded as findings, not blockers: V3 misread the tyre load index (`113S` vs truth `118S`), and A3 returned a snowfall total with a 10× unit error (`214.0 mm` where the ECCC `TOTAL_SNOW` field is in cm) — the **second** occurrence of that class on A3, so the task definition is the thing to fix. |
+| 2026-10-05 | **Found and fixed deployment drift: the deployed Portainer stack still set `LLAMA_ARG_SPEC_DRAFT_TYPE_K/_V`** on both the B70 and the XTX service, 12 days after the 2026-09-23 §3 correction landed in this repo. Unknown `LLAMA_ARG_*` names are **silently ignored**, so both production containers had been running the draft KV at its **f16 default** while the config claimed q8_0 / q4_0. Confirmed against the image: `grep -aoE 'LLAMA_ARG_SPEC[A-Z_]*' /app/libllama-common.so.0.6.0` exposes `…_CACHE_TYPE_K/_V` and **no** `…_TYPE_K/_V`. Fixed on the **B70 service only** (XTX is a separate repo/channel and is tracked separately — it still carries the wrong name); the B70 now matches what the suite actually measured (`spec common_specu: - gpu_layers=-1, cache_k=q8_0, cache_v=q8_0`). **No past measurement was invalidated** — every recorded run passed the draft KV via the *flag* form or the correct env name. Lesson recorded in §3: a repo fix is not a deployment fix; re-apply the stack after editing this file. |

@@ -1,0 +1,72 @@
+{
+  "hostname": "PC-DEV",
+  "kernel": {
+    "os": "Linux",
+    "version": "7.0.0-34-generic #34-Ubuntu SMP PREEMPT_DYNAMIC Wed Sep 2 14:29:37 UTC 2026",
+    "architecture": "x86_64"
+  },
+  "operating_system": {
+    "name": "Debian GNU/Linux",
+    "version": "12 (bookworm)",
+    "id": "debian"
+  },
+  "cpu": {
+    "model": "Intel(R) Core(TM) i5-7500T CPU @ 2.70GHz",
+    "sockets": 1,
+    "cores_per_socket": 4,
+    "threads_per_core": 1,
+    "logical_cpus": 4,
+    "base_freq_mhz": 2700,
+    "max_freq_mhz": 3300,
+    "min_freq_mhz": 800,
+    "features": [
+      "sse4_2",
+      "avx2"
+    ],
+    "virtualization": "VT-x"
+  },
+  "memory": {
+    "total": "14GiB",
+    "used": "6.9GiB",
+    "available": "7.6GiB",
+    "swap_total": "4.0GiB",
+    "swap_used": "1.7GiB"
+  },
+  "disk": {
+    "filesystems": [
+      {
+        "mount": "/",
+        "device": "overlay (backed by /dev/nvme0n1p2)",
+        "size": "457G",
+        "used": "289G",
+        "available": "145G",
+        "use_percent": 67
+      },
+      {
+        "mount": "/workspace",
+        "device": "/dev/nvme0n1p2",
+        "size": "457G",
+        "used": "289G",
+        "available": "145G",
+        "use_percent": 67
+      }
+    ],
+    "physical_devices": [
+      {
+        "name": "nvme0n1",
+        "model": "WD Blue SN570 500GB",
+        "size": "465.8G"
+      },
+      {
+        "name": "sda",
+        "model": "TEAM T253X6512G",
+        "size": "476.9G"
+      }
+    ]
+  },
+  "gpu": null,
+  "notes": [
+    "运行环境为容器（overlay 根文件系统，存在大量 loop 设备）",
+    "未检测到独立 GPU（无 nvidia-smi、无 /dev/dri、lspci 不可用），仅 CPU 集成显卡（Intel UHD Graphics 630，随 i5-7500T）"
+  ]
+}
