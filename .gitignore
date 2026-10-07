@@ -2,8 +2,14 @@
 build/
 *.so
 *.so.*
-llama
-llama-*
+# The llama / llama-* entries are the BUILT BINARIES at the repo root. Anchor them
+# with a leading slash: an unanchored `llama-*` also matches by basename anywhere,
+# which silently hid five upstream source files under llama.cpp/src/
+# (llama-version.h.in and four llama-*.cpp/.h). llama-version.h.in is a CMake
+# configure_file INPUT, so hiding it breaks the build at the configure step with
+#   CMake Error: File /app/llama.cpp/src/llama-version.h.in does not exist.
+/llama
+/llama-*
 
 # Docker
 *.tar
@@ -21,3 +27,6 @@ models/
 
 # Logs
 *.log
+
+# local docker CLI state (harness/promote) — never commit
+.docker-home/
