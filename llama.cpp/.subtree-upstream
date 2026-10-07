@@ -1,0 +1,18 @@
+# Upstream provenance for the vendored llama.cpp/ subtree.
+#
+# The build uses THIS tree, not a fresh upstream clone. To move to a new
+# release, run scripts/sync-llama-subtree.sh <ref> and push; the version read
+# in CI comes from llama.cpp/CMakeLists.txt, so the image tag follows
+# automatically.
+#
+# The fields below record exactly where the current content came from, so a
+# build can be traced back to an upstream commit and a b tag (the stable
+# workflow tags images by v* version; the dev workflow needs the b tag).
+tag=b11458
+b_tag=b11458
+commit=c479922ac520a08969b4c1dc154d7bbb3c386d85
+tag_object=c479922ac520a08969b4c1dc154d7bbb3c386d85
+tag_type=commit
+version=0.6.0
+synced=2026-10-07
+subject=hexagon: CPY/CONCAT/CONT/DUP overhaul to use DMA/HVX for all cases (#30067)

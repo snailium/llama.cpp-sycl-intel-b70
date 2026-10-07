@@ -43,22 +43,37 @@ jobs:
       # ============================================================
       # Detect llama.cpp tags, decide 2a (point to stable) vs 2b (build dev)
       # ============================================================
-      - name: Detect latest llama.cpp v* and b* tags
+      # ============================================================
+      # The vendored llama.cpp/ subtree IS the source of truth, and this
+      # workflow checks out the `dev` branch, so it builds DEV'S OWN subtree —
+      # independently of whatever `main` carries. The version and the b tag are
+      # read from that tree rather than from upstream tags, which makes a dev
+      # image reproducible: its tag names the exact committed source.
+      #
+      # To advance: scripts/sync-llama-subtree.sh <b-tag> on the dev branch, and
+      # push. The b_tag changes, so the tag prefix below changes and the build
+      # proceeds. Syncing a v* tag instead makes is_release_tag true, which is
+      # the correct signal to point dev at stable.
+      # ============================================================
+      - name: Read llama.cpp version and b tag from the vendored subtree
         id: llama
         run: |
-          git remote add upstream https://github.com/ggml-org/llama.cpp.git 2>/dev/null || true
-          git fetch upstream --tags --force
-          LATEST_V=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^v[0-9]' | head -1)
-          LATEST_B=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^b[0-9]+' | head -1)
-          B_DATE=$(git for-each-ref --format='%(creatordate:unix)' "refs/tags/$LATEST_B")
-          V_DATE=$(git for-each-ref --format='%(creatordate:unix)' "refs/tags/$LATEST_V")
+          set -e
+          MAJ=$(grep -m1 '^set(LLAMA_VERSION_MAJOR' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
+          MIN=$(grep -m1 '^set(LLAMA_VERSION_MINOR' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
+          PAT=$(grep -m1 '^set(LLAMA_VERSION_PATCH' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
+          LATEST_V="v${MAJ}.${MIN}.${PAT}"
+          LATEST_B=$(grep -m1 '^b_tag=' llama.cpp/.subtree-upstream | cut -d= -f2)
+          SUB_TAG=$(grep -m1 '^tag=' llama.cpp/.subtree-upstream | cut -d= -f2)
+          [ -n "$LATEST_B" ] || { echo "::error::llama.cpp/.subtree-upstream has no b_tag="; exit 1; }
           echo "latest_v=$LATEST_V" >> $GITHUB_OUTPUT
           echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
-          if [ "$B_DATE" -gt "$V_DATE" ]; then
-            echo "is_release_tag=false" >> $GITHUB_OUTPUT
-          else
+          if [[ "$SUB_TAG" == v* ]]; then
             echo "is_release_tag=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_release_tag=false" >> $GITHUB_OUTPUT
           fi
+          echo "Vendored subtree: CMakeLists $LATEST_V, provenance $SUB_TAG, b $LATEST_B"
 
       # ============================================================
       # Derive the Intel stack from the latest compute-runtime (single
@@ -168,12 +183,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Clone llama.cpp at latest b tag (for dev)
-        if: steps.decide.outputs.should_build == 'true'
-        id: clone
-        run: |
-          rm -rf llama.cpp
-          git clone --depth 1 --branch "${{ steps.llama.outputs.latest_b }}" https://github.com/ggml-org/llama.cpp llama.cpp
+      # No clone step: dev builds its own vendored llama.cpp/ subtree exactly as
+      # committed. The b tag read above only names it in the image tag; the
+      # content comes from this branch.
 
       - name: Compute dev temporary tag
         if: steps.decide.outputs.should_build == 'true'

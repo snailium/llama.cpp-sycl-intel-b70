@@ -122,6 +122,38 @@ Then run with the env vars above.
 
 We explicitly do **not** set `GGML_SYCL_DISABLE_OPT`.
 
+## The vendored `llama.cpp/` subtree is the build source
+
+CI builds **this committed tree** — it does not clone upstream at build time. Each branch
+carries its own subtree, so the two lines build different llama.cpp revisions from the same
+repository:
+
+| branch | workflow | subtree carries |
+|---|---|---|
+| `main` | `build-stable.yml` | a release tag (`v*`) |
+| `dev` | `build-dev.yml` | a dev tag (`b*`) |
+
+The image tag follows the version in `llama.cpp/CMakeLists.txt` automatically, so advancing a
+version is a subtree sync plus a push — no workflow edit.
+
+```bash
+scripts/sync-llama-subtree.sh v0.7.0     # release content (main)
+scripts/sync-llama-subtree.sh b11429     # dev content (dev)
+git diff --cached --stat                 # review
+git commit && git push                   # CI reads the new version and builds
+```
+
+`llama.cpp/.subtree-upstream` records the upstream tag, `b` tag and commit the current content
+came from, so any image traces back to an upstream revision. `build-dev.yml` reads the `b` tag
+from that file: it checks out the `dev` branch, so the tag describes dev's own subtree, and
+`is_release_tag` is simply "dev's subtree is currently at a `v*` tag".
+
+**Why not `git subtree pull`:** the vendored commit is a squash with no upstream ancestry, and
+the upstream commit it came from was later rewritten and is unreachable — so subtree has no
+common ancestor to diff against and fails with *"refusing to merge unrelated histories"*.
+`sync-llama-subtree.sh` replaces the tree against a named ref, which is equivalent and
+verifiable, and supports `--dry-run`.
+
 ## Updating the stack
 
 Edit `.devops/intel.Dockerfile` and bump:
