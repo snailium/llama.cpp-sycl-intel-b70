@@ -160,12 +160,36 @@ Add these to the `llama-server` invocation when serving Qwen3.8-27B in non-think
 ├── examples/
 │   └── qwen27b-server.sh       ← recommended launcher (Q4 MTP + Q8 mmproj, MTP3/96k + XMX)
 ├── scripts/
-│   └── build-b70-image.sh      ← convenience build script
+│   ├── build-b70-image.sh      ← convenience build script
+│   └── sync-llama-subtree.sh   ← move llama.cpp/ to a new upstream ref
 ├── .devops/intel.Dockerfile    ← the build pipeline (all version pins)
 ├── docker-compose.yml
 ├── .github/workflows/          ← CI auto-build (stable / dev)
-└── llama.cpp/                  ← upstream llama.cpp vendored via git subtree
+└── llama.cpp/                  ← upstream llama.cpp, vendored — THE BUILD SOURCE
 ```
+
+### `llama.cpp/` is the source of truth, not a mirror
+
+CI builds **this committed tree**; it does not clone upstream at build time. A build therefore
+reproduces exactly the reviewed source, and the image tag follows the version in
+`llama.cpp/CMakeLists.txt` automatically.
+
+To move to a new llama.cpp release:
+
+```bash
+scripts/sync-llama-subtree.sh v0.7.0     # or b11429, for a dev tag
+git diff --cached --stat                 # review what changes
+git commit && git push                   # CI reads the new version and builds
+```
+
+`llama.cpp/.subtree-upstream` records the upstream tag, `b` tag and commit the current content
+came from, so any image can be traced back to an upstream revision.
+
+**Why not `git subtree pull`:** the vendored commit is a squash with no upstream ancestry, and
+the upstream commit it came from was later rewritten and is unreachable — so subtree has no
+common ancestor to diff against and refuses with *"refusing to merge unrelated histories"*.
+`sync-llama-subtree.sh` replaces the tree against a named ref, which is equivalent and
+verifiable, and it refuses to run silently (use `--dry-run` to preview).
 
 ## What we keep enabled (by design)
 

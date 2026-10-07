@@ -44,16 +44,26 @@ jobs:
       # bumping each package to its own "latest" (which never forms a
       # compatible set).
       # ============================================================
-      - name: Detect latest llama.cpp stable tag
+      # ============================================================
+      # The vendored llama.cpp/ subtree IS the source of truth.
+      # The build no longer clones upstream: the version is read FROM the
+      # subtree, so what is committed is exactly what gets built. To move to
+      # a new release, sync the subtree and push (see scripts/sync-llama-subtree.sh);
+      # this step then sees the new version and the tag prefix changes, so the
+      # "already built" check below triggers a rebuild automatically.
+      # ============================================================
+      - name: Read llama.cpp version from the vendored subtree
         id: llama
         run: |
-          git remote add upstream https://github.com/ggml-org/llama.cpp.git 2>/dev/null || true
-          git fetch upstream --tags --force
-          LATEST_V=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep -E '^v[0-9]' | head -1)
-          V_DATE=$(git for-each-ref --format='%(creatordate:iso8601)' "refs/tags/$LATEST_V")
+          set -e
+          MAJ=$(grep -m1 '^set(LLAMA_VERSION_MAJOR' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
+          MIN=$(grep -m1 '^set(LLAMA_VERSION_MINOR' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
+          PAT=$(grep -m1 '^set(LLAMA_VERSION_PATCH' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
+          LATEST_V="v${MAJ}.${MIN}.${PAT}"
+          V_DATE=$(git log -1 --format=%cI -- llama.cpp || echo "unknown")
           echo "latest_v=$LATEST_V" >> $GITHUB_OUTPUT
           echo "v_date=$V_DATE" >> $GITHUB_OUTPUT
-          echo "Latest upstream stable: $LATEST_V"
+          echo "Vendored llama.cpp subtree: $LATEST_V (last subtree change $V_DATE)"
 
       - name: Detect latest compute-runtime and derive paired Intel stack
         id: deps
@@ -165,11 +175,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Refresh llama.cpp subtree at latest stable v tag
-        if: steps.decide.outputs.should_build == 'true'
-        run: |
-          rm -rf llama.cpp
-          git clone --depth 1 --branch "${{ steps.llama.outputs.latest_v }}" https://github.com/ggml-org/llama.cpp llama.cpp
+      # No "Refresh llama.cpp subtree" step: the vendored subtree is the
+      # source of truth and is built as committed. A build therefore reproduces
+      # exactly the reviewed source, and the version read above comes from that
+      # same tree rather than from a remote tag that could have moved.
 
       - name: Compute temporary stable tag
         if: steps.decide.outputs.should_build == 'true'

@@ -1,0 +1,15 @@
+# Upstream provenance for the vendored llama.cpp/ subtree.
+#
+# The build uses THIS tree, not a fresh upstream clone. To move to a new
+# release, run scripts/sync-llama-subtree.sh <ref> and push; the version read
+# in CI comes from llama.cpp/CMakeLists.txt, so the image tag follows
+# automatically.
+#
+# The fields below record exactly where the current content came from, so a
+# build can be traced back to an upstream commit and a b tag (the stable
+# workflow tags images by v* version; the dev workflow needs the b tag).
+tag=v0.6.0
+b_tag=b11429
+commit=d81235049384534c167caea52b85a694f6103d14
+tag_object=69ecae922d2b60c1fa8c590279f4e2099af75111
+synced=2026-10-05
