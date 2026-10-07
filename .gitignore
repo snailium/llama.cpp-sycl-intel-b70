@@ -20,8 +20,15 @@ build/
 .vscode/
 *.swp
 
-# Models (never commit)
-models/
+# Models (never commit downloaded weights)
+# Anchored to the repo root: this is our own ./models/ download directory. An
+# unanchored `models/` also matches by basename at any depth, which silently
+# dropped 17 upstream source files from the subtree sync — src/models/*.cpp
+# (model implementations, pulled in by a GLOB so the build does not even warn),
+# tools/mtmd/models/*.cpp (an EXPLICIT source list, which fails configure with
+#   CMake Error: Cannot find source file: models/deepseek4v.cpp), and
+# models/templates/*.jinja (chat templates).
+/models/
 *.gguf
 *.bin
 
