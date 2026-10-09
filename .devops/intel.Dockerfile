@@ -367,6 +367,17 @@ COPY --from=build /app/full/llama /app/full/llama-server /app/
 
 WORKDIR /app
 
+# Pin the listening port to 8080 rather than inheriting llama.cpp's compiled-in
+# default. Upstream changed that default from 8080 to 9931 (common/common.h,
+# PR #30159), and because the vendored subtree now advances automatically that
+# change arrives without anyone editing this file. Everything around it still
+# assumes 8080: the HEALTHCHECK below, and the deployed port mapping 18080:8080.
+# Left unpinned, an image run without an explicit --port would listen on 9931
+# while its own healthcheck probed 8080, so the container would report
+# unhealthy while serving fine. Upstream's own .devops/intel.Dockerfile pins it
+# the same way (ENV LLAMA_ARG_PORT=8080).
+ENV LLAMA_ARG_PORT=8080
+
 HEALTHCHECK CMD [ "curl", "-f", "http://localhost:8080/health" ]
 
 ENTRYPOINT [ "/bin/sh", "-c", "exec /app/llama-server $DEBUG_FLAG \"$@\"", "--" ]
