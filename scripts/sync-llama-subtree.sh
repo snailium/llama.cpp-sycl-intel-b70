@@ -30,6 +30,11 @@ set -euo pipefail
 REF="${1:?usage: sync-llama-subtree.sh <upstream-ref> [--dry-run]}"
 DRY_RUN="${2:-}"
 UPSTREAM_URL="${UPSTREAM_URL:-https://github.com/ggml-org/llama.cpp.git}"
+# Optional: an already-prepared upstream clone to read from instead of making a
+# new one. CI resolves the tag from a partial clone and passes it here so a run
+# pays for the upstream history once, not twice. The directory must be a git
+# clone that can resolve $REF (it does not need a worktree).
+UPSTREAM_DIR="${UPSTREAM_DIR:-}"
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
 cd "$REPO_ROOT"
@@ -41,23 +46,32 @@ SUBTREE="$REPO_ROOT/llama.cpp"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-echo "Fetching upstream $REF ..."
-git clone --quiet --filter=blob:none --no-checkout "$UPSTREAM_URL" "$TMP/up" 2>/dev/null
-git -C "$TMP/up" fetch --quiet --tags origin "+refs/tags/*:refs/tags/*"
-git -C "$TMP/up" rev-parse --verify "$REF^{commit}" >/dev/null 2>&1 || {
-  echo "ERR: upstream has no ref '$REF'" >&2; exit 1; }
+if [[ -n "$UPSTREAM_DIR" ]]; then
+  [[ -d "$UPSTREAM_DIR/.git" ]] || { echo "ERR: UPSTREAM_DIR '$UPSTREAM_DIR' is not a git clone" >&2; exit 1; }
+  UP="$UPSTREAM_DIR"
+  echo "Using prepared upstream clone at $UP ..."
+  git -C "$UP" rev-parse --verify "$REF^{commit}" >/dev/null 2>&1 || {
+    echo "ERR: that clone has no ref '$REF' (fetch tags into it first)" >&2; exit 1; }
+else
+  UP="$TMP/up"
+  echo "Fetching upstream $REF ..."
+  git clone --quiet --filter=blob:none --no-checkout "$UPSTREAM_URL" "$UP" 2>/dev/null
+  git -C "$UP" fetch --quiet --tags origin "+refs/tags/*:refs/tags/*"
+  git -C "$UP" rev-parse --verify "$REF^{commit}" >/dev/null 2>&1 || {
+    echo "ERR: upstream has no ref '$REF'" >&2; exit 1; }
+fi
 
-COMMIT=$(git -C "$TMP/up" rev-parse "$REF^{commit}")
-TAG_OBJ=$(git -C "$TMP/up" rev-parse "$REF" 2>/dev/null || echo "")
-TAG_TYPE=$(git -C "$TMP/up" cat-file -t "$REF" 2>/dev/null || echo "")
-SUBJECT=$(git -C "$TMP/up" log -1 --format=%s "$COMMIT")
+COMMIT=$(git -C "$UP" rev-parse "$REF^{commit}")
+TAG_OBJ=$(git -C "$UP" rev-parse "$REF" 2>/dev/null || echo "")
+TAG_TYPE=$(git -C "$UP" cat-file -t "$REF" 2>/dev/null || echo "")
+SUBJECT=$(git -C "$UP" log -1 --format=%s "$COMMIT")
 
 # The dev tag is whichever b* tag points at this commit (may be none).
-B_TAG=$(git -C "$TMP/up" tag --points-at "$COMMIT" | grep -E '^b[0-9]+$' | sort -V | tail -1 || true)
+B_TAG=$(git -C "$UP" tag --points-at "$COMMIT" | grep -E '^b[0-9]+$' | sort -V | tail -1 || true)
 
 # LLAMA_VERSION_BASE is a CMake template (${LLAMA_VERSION_MAJOR}...), so compose
 # the number from the three components instead of reading BASE.
-_cm=$(git -C "$TMP/up" show "$COMMIT:CMakeLists.txt")
+_cm=$(git -C "$UP" show "$COMMIT:CMakeLists.txt")
 _vmaj=$(echo "$_cm" | grep -m1 '^set(LLAMA_VERSION_MAJOR' | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
 _vmin=$(echo "$_cm" | grep -m1 '^set(LLAMA_VERSION_MINOR' | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
 _vpat=$(echo "$_cm" | grep -m1 '^set(LLAMA_VERSION_PATCH' | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
@@ -72,7 +86,7 @@ echo "  subject    : $SUBJECT"
 # --- show what would change before touching anything ------------------------
 OLD_FILES=$(mktemp); NEW_FILES=$(mktemp)
 ( cd "$SUBTREE" && find . -type f | sed 's|^\./||' | grep -v '^\.subtree-upstream$' | LC_ALL=C sort ) > "$OLD_FILES"
-git -C "$TMP/up" ls-tree -r --name-only "$COMMIT" | LC_ALL=C sort > "$NEW_FILES"
+git -C "$UP" ls-tree -r --name-only "$COMMIT" | LC_ALL=C sort > "$NEW_FILES"
 echo
 echo "  files: $(wc -l < "$OLD_FILES") -> $(wc -l < "$NEW_FILES")"
 echo "  removed: $(comm -23 "$OLD_FILES" "$NEW_FILES" | wc -l), added: $(comm -13 "$OLD_FILES" "$NEW_FILES" | wc -l)"
@@ -96,7 +110,7 @@ echo
 echo "Replacing $SUBTREE ..."
 rm -rf "$SUBTREE"
 mkdir -p "$SUBTREE"
-git -C "$TMP/up" archive "$COMMIT" | tar -x -C "$SUBTREE"
+git -C "$UP" archive "$COMMIT" | tar -x -C "$SUBTREE"
 
 cat > "$SUBTREE/.subtree-upstream" <<EOF
 # Upstream provenance for the vendored llama.cpp/ subtree.

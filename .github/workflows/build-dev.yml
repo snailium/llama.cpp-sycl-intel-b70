@@ -24,7 +24,12 @@ jobs:
       (github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # contents: write is required because the dev build AUTO-ADVANCES the
+      # vendored subtree: after a successful build it commits the synced tree
+      # back to dev so the repository keeps recording the exact source that was
+      # built. Pushes made with GITHUB_TOKEN do not start new workflow runs, so
+      # this cannot loop.
+      contents: write
       packages: write
       issues: write
 
@@ -41,38 +46,60 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       # ============================================================
-      # Detect llama.cpp tags, decide 2a (point to stable) vs 2b (build dev)
+      # Resolve the newest upstream llama.cpp tag.
+      #
+      # The dev build AUTO-ADVANCES. It resolves the newest b* tag from
+      # upstream and syncs the vendored subtree to it before building, so a new
+      # llama.cpp dev tag enters the image on the next scheduled run with no
+      # manual step. The vendored tree is still the build source — what CI
+      # compiles is what gets committed — but advancing it is now automatic.
+      #
+      # This replaces the earlier behaviour of reading the b tag ONLY from the
+      # committed .subtree-upstream and never consulting upstream. That made a
+      # dev image reproducible but also made every advance a manual act, which
+      # meant the weekly cron rebuilt the same tag forever and then skipped as
+      # a duplicate. Reproducibility is kept by recording the resolution in the
+      # provenance file and committing it back (see "Record the advance").
+      #
+      # `is_release_tag` preserves the 2a signal: if upstream's newest tag
+      # overall is a v* release (newer than the newest b*), then building an
+      # older b* would be wrong, so dev reports "point at stable" instead.
       # ============================================================
-      # ============================================================
-      # The vendored llama.cpp/ subtree IS the source of truth, so the version
-      # and the b tag are read FROM it rather than from upstream tags. That is
-      # what makes a dev build reproducible: the image tag names the exact
-      # committed source, not "whatever upstream had at build time". To
-      # advance, sync the subtree (scripts/sync-llama-subtree.sh) and push; the
-      # b_tag changes, the prefix below changes, and the build proceeds.
-      # ============================================================
-      - name: Read llama.cpp version and b tag from the vendored subtree
-        id: llama
+      - name: Resolve newest upstream llama.cpp tag
+        id: upstream
         run: |
           set -e
-          MAJ=$(grep -m1 '^set(LLAMA_VERSION_MAJOR' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
-          MIN=$(grep -m1 '^set(LLAMA_VERSION_MINOR' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
-          PAT=$(grep -m1 '^set(LLAMA_VERSION_PATCH' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
-          LATEST_V="v${MAJ}.${MIN}.${PAT}"
-          LATEST_B=$(grep -m1 '^b_tag=' llama.cpp/.subtree-upstream | cut -d= -f2)
-          SUB_TAG=$(grep -m1 '^tag=' llama.cpp/.subtree-upstream | cut -d= -f2)
-          [ -n "$LATEST_B" ] || { echo "::error::llama.cpp/.subtree-upstream has no b_tag="; exit 1; }
-          echo "latest_v=$LATEST_V" >> $GITHUB_OUTPUT
-          echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
-          # If the subtree itself is at a release tag, upstream's newest thing
-          # IS a release: point dev at stable rather than build a dev image from
-          # release content.
-          if [[ "$SUB_TAG" == v* ]]; then
-            echo "is_release_tag=true" >> $GITHUB_OUTPUT
+          UP="$RUNNER_TEMP/llama-upstream"
+          rm -rf "$UP"
+          # Partial clone: we only need tags and their dates, never file
+          # contents here. The subtree sync reads the same clone afterwards.
+          git clone --quiet --filter=blob:none --no-checkout \
+            https://github.com/ggml-org/llama.cpp.git "$UP"
+          git -C "$UP" fetch --quiet --tags --force origin "+refs/tags/*:refs/tags/*"
+
+          # --sort=-creatordate puts the newest tag first, so the first match of
+          # each pattern is the newest of that kind. grep -m1 (not `| head -1`)
+          # so grep is the last writer in the pipeline: with `head -1` grep gets
+          # SIGPIPE and writes "Broken pipe" noise into the log on every run.
+          TAGS=$(git -C "$UP" for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags)
+          LATEST_B=$(printf '%s\n' "$TAGS" | grep -m1 -E '^b[0-9]+$')
+          LATEST_V=$(printf '%s\n' "$TAGS" | grep -m1 -E '^v[0-9]+\.[0-9]+\.[0-9]+$')
+          [ -n "$LATEST_B" ] || { echo "::error::upstream has no b* tag"; exit 1; }
+          [ -n "$LATEST_V" ] || { echo "::error::upstream has no v* tag"; exit 1; }
+
+          B_DATE=$(git -C "$UP" for-each-ref --format='%(creatordate:unix)' "refs/tags/$LATEST_B")
+          V_DATE=$(git -C "$UP" for-each-ref --format='%(creatordate:unix)' "refs/tags/$LATEST_V")
+          if [ "$V_DATE" -gt "$B_DATE" ]; then
+            IS_RELEASE=true
           else
-            echo "is_release_tag=false" >> $GITHUB_OUTPUT
+            IS_RELEASE=false
           fi
-          echo "Vendored subtree: CMakeLists $LATEST_V, provenance $SUB_TAG, b $LATEST_B"
+
+          echo "upstream_dir=$UP" >> $GITHUB_OUTPUT
+          echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
+          echo "latest_v=$LATEST_V" >> $GITHUB_OUTPUT
+          echo "is_release_tag=$IS_RELEASE" >> $GITHUB_OUTPUT
+          echo "Upstream newest: b=$LATEST_B ($(date -u -d "@$B_DATE" +%F)), v=$LATEST_V ($(date -u -d "@$V_DATE" +%F)) -> is_release_tag=$IS_RELEASE"
 
       # ============================================================
       # Derive the Intel stack from the latest compute-runtime (single
@@ -118,44 +145,112 @@ jobs:
           echo "Derived from compute-runtime $CR: IGC=$IGC L0=${L0#v} gmmlib=$GMM"
 
       # ============================================================
-      # Decision: 2a (point-to-stable / skip) or 2b (build dev from b tag)
+      # Decision: 2a (point-to-stable / skip), up-to-date / skip-duplicate, or
+      # 2b (advance the subtree, then build dev).
       #
-      # `should_build` is the ONLY execution gate. `strategy` is a diagnostic
-      # label explaining WHY, and must never appear in a step condition - the
-      # build steps used to also require `strategy == 'build-dev'`, so a
-      # `force: true` dispatch (which sets `strategy=force`) skipped every
-      # build step and still reported a green run.
+      # `should_build` is the ONLY execution gate for building. `should_advance`
+      # is a SECOND, independent gate: the committed subtree must catch up
+      # whenever it is behind upstream, even when there is nothing to build
+      # because that b+CR image already exists in GHCR.
+      #
+      # `strategy` is a diagnostic label explaining WHY, and must never appear
+      # in a build-step condition - the build steps used to also require
+      # `strategy == 'build-dev'`, so a `force: true` dispatch (which sets
+      # `strategy=force`) skipped every build step and still reported a green
+      # run.
       # ============================================================
       - name: Decide dev build strategy
         id: decide
         run: |
-          IS_RELEASE="${{ steps.llama.outputs.is_release_tag }}"
-          LATEST_B="${{ steps.llama.outputs.latest_b }}"
+          set -e
+          IS_RELEASE="${{ steps.upstream.outputs.is_release_tag }}"
+          LATEST_B="${{ steps.upstream.outputs.latest_b }}"
+          CURRENT_B=$(grep -m1 '^b_tag=' llama.cpp/.subtree-upstream | cut -d= -f2)
           FORCE="${{ github.event.inputs.force || 'false' }}"
+
+          echo "current_b=$CURRENT_B" >> $GITHUB_OUTPUT
+
           if [[ "$FORCE" == "true" ]]; then
-            echo "should_build=true" >> $GITHUB_OUTPUT; echo "strategy=force" >> $GITHUB_OUTPUT
-            echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
-            echo "reason=Forced by manual dispatch"
+            if [[ "$LATEST_B" != "$CURRENT_B" ]]; then
+              echo "should_advance=true" >> $GITHUB_OUTPUT
+            else
+              echo "should_advance=false" >> $GITHUB_OUTPUT
+            fi
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "strategy=force" >> $GITHUB_OUTPUT
+            echo "reason=Forced by manual dispatch (subtree $CURRENT_B -> upstream $LATEST_B)"
             exit 0
           fi
+
           if [[ "$IS_RELEASE" == "true" ]]; then
-            echo "should_build=false" >> $GITHUB_OUTPUT; echo "strategy=point-to-stable" >> $GITHUB_OUTPUT
-            echo "reason=Latest llama.cpp tag is a release (v*). Suggest pointing the dev image to the latest stable."
-          else
-            # Build dev from b tag, but skip if this exact b+CR combo already built.
-            REPO="${{ github.repository }}/llama-sycl-b70"
-            PREFIX="server-dev-${LATEST_B}-c${{ steps.deps.outputs.latest_compute }}-"
-            TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:${REPO}:pull" | jq -r .token)
-            TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" "https://ghcr.io/v2/${REPO}/tags/list" | jq -r '.tags[]? // empty' || true)
-            if [ -n "$TOKEN" ] && echo "$TAGS" | grep -qF "$PREFIX"; then
-              echo "should_build=false" >> $GITHUB_OUTPUT; echo "strategy=skip-duplicate" >> $GITHUB_OUTPUT
-              echo "reason=Already built dev ${PREFIX%?} in GHCR - skipping redundant rebuild"
-            else
-              echo "should_build=true" >> $GITHUB_OUTPUT; echo "strategy=build-dev" >> $GITHUB_OUTPUT
-              echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
-              echo "reason=Newer b tag $LATEST_B available (not yet built). Building dev with compute-runtime-derived Intel pins."
-            fi
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "should_advance=false" >> $GITHUB_OUTPUT
+            echo "strategy=point-to-stable" >> $GITHUB_OUTPUT
+            echo "reason=Upstream's newest tag is a release (${{ steps.upstream.outputs.latest_v }}), newer than $LATEST_B. Suggest pointing the dev image at the latest stable."
+            exit 0
           fi
+
+          # THE RULE: nothing newer upstream means nothing to do at all.
+          if [[ "$LATEST_B" == "$CURRENT_B" ]]; then
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "should_advance=false" >> $GITHUB_OUTPUT
+            echo "strategy=up-to-date" >> $GITHUB_OUTPUT
+            echo "reason=Subtree is already at the newest upstream b tag ($LATEST_B) - nothing to build."
+            exit 0
+          fi
+
+          # The tree is behind, so an advance is due. Whether we ALSO build
+          # depends only on whether this exact b+CR combination is already up.
+          REPO="${{ github.repository }}/llama-sycl-b70"
+          PREFIX="server-dev-${LATEST_B}-c${{ steps.deps.outputs.latest_compute }}-"
+          TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:${REPO}:pull" | jq -r .token)
+          TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" "https://ghcr.io/v2/${REPO}/tags/list" | jq -r '.tags[]? // empty' || true)
+
+          echo "should_advance=true" >> $GITHUB_OUTPUT
+          if [ -n "$TOKEN" ] && echo "$TAGS" | grep -qF "$PREFIX"; then
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "strategy=skip-duplicate" >> $GITHUB_OUTPUT
+            echo "reason=Image ${PREFIX%?} already exists in GHCR - advancing the subtree to $LATEST_B without rebuilding."
+          else
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "strategy=build-dev" >> $GITHUB_OUTPUT
+            echo "reason=Newer b tag $LATEST_B available (subtree was $CURRENT_B). Syncing the subtree and building dev with compute-runtime-derived Intel pins."
+          fi
+
+      # ============================================================
+      # Advance the vendored subtree to the resolved b tag.
+      #
+      # This calls the SAME script a human would run, so the CI path and the
+      # manual path cannot drift. UPSTREAM_DIR points it at the clone the
+      # resolve step already made, so upstream is fetched once per run instead
+      # of twice.
+      # ============================================================
+      - name: Advance vendored subtree to the newest b tag
+        id: advance
+        if: steps.decide.outputs.should_advance == 'true'
+        run: |
+          set -e
+          REF="${{ steps.upstream.outputs.latest_b }}"
+          echo "Advancing vendored subtree ${{ steps.decide.outputs.current_b }} -> $REF"
+          UPSTREAM_DIR="${{ steps.upstream.outputs.upstream_dir }}" \
+            scripts/sync-llama-subtree.sh "$REF"
+          echo
+          echo "Staged change:"
+          git diff --cached --stat | tail -5
+
+      - name: Read llama.cpp version and b tag from the vendored subtree
+        id: llama
+        run: |
+          set -e
+          MAJ=$(grep -m1 '^set(LLAMA_VERSION_MAJOR' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
+          MIN=$(grep -m1 '^set(LLAMA_VERSION_MINOR' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
+          PAT=$(grep -m1 '^set(LLAMA_VERSION_PATCH' llama.cpp/CMakeLists.txt | sed 's/.*[[:space:]]\([0-9]*\).*/\1/')
+          LATEST_V="v${MAJ}.${MIN}.${PAT}"
+          LATEST_B=$(grep -m1 '^b_tag=' llama.cpp/.subtree-upstream | cut -d= -f2)
+          [ -n "$LATEST_B" ] || { echo "::error::llama.cpp/.subtree-upstream has no b_tag="; exit 1; }
+          echo "latest_v=$LATEST_V" >> $GITHUB_OUTPUT
+          echo "latest_b=$LATEST_B" >> $GITHUB_OUTPUT
+          echo "Vendored subtree now: CMakeLists $LATEST_V, b $LATEST_B"
 
       - name: Create guidance issue (2a - point dev to stable)
         if: steps.decide.outputs.strategy == 'point-to-stable'
@@ -182,9 +277,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # No clone step: the vendored llama.cpp/ subtree is the source of truth
-      # and is built exactly as committed. The b tag above only names it in the
-      # image tag; the content comes from this repository.
+      # No clone step: dev builds its own vendored llama.cpp/ subtree exactly as
+      # committed. The b tag read above only names it in the image tag; the
+      # content comes from this branch.
 
       - name: Compute dev temporary tag
         if: steps.decide.outputs.should_build == 'true'
@@ -256,6 +351,7 @@ jobs:
             let body = `**Dev weekly build**\n\n`;
             body += `**Image**: \`${full}\`\n`;
             body += `**llama.cpp b tag**: ${{ steps.llama.outputs.latest_b }}\n`;
+            body += `**Subtree**: advanced from \`${{ steps.decide.outputs.current_b }}\` to \`${{ steps.llama.outputs.latest_b }}\` by this run\n`;
             body += `**Compute Runtime**: ${{ steps.deps.outputs.latest_compute }} (paired IGC ${{ steps.deps.outputs.latest_igc }}, L0 ${{ steps.deps.outputs.latest_level_zero }})\n`;
             body += `**Image actually contains**: libze1 \`${{ steps.verify.outputs.level_zero_actual }}\`, loader \`${{ steps.verify.outputs.level_zero_loader }}\`\n`;
             body += `**Build**: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n`;
@@ -265,3 +361,33 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo,
               title: `B70 Dev Image Ready: ${tag}`, body, labels: ['dev','B70']
             });
+
+      # ============================================================
+      # Record the advance on dev.
+      #
+      # This runs LAST on purpose. The subtree was already replaced in the
+      # workspace to build the image, but it is committed only after the build
+      # (and the version check) succeeded, so a failed build leaves the
+      # repository at the previous b tag and the next run retries instead of
+      # silently skipping as "up-to-date". It also runs when the image already
+      # existed (skip-duplicate), where it is the ONLY effect of the run.
+      #
+      # If this push fails, nothing is lost: the image is already published and
+      # the next scheduled run sees the same gap and advances again.
+      # ============================================================
+      - name: Record the advance on the dev branch
+        if: steps.decide.outputs.should_advance == 'true'
+        run: |
+          set -e
+          REF="${{ steps.llama.outputs.latest_b }}"
+          git add -A llama.cpp
+          if git diff --cached --quiet; then
+            echo "Nothing staged; dev already records $REF"
+            exit 0
+          fi
+          git commit \
+            -m "build(dev): auto-advance vendored subtree to $REF" \
+            -m "Resolved as the newest upstream llama.cpp b* tag by the scheduled dev build and synced with scripts/sync-llama-subtree.sh. The image built from this tree is server-dev-${{ steps.llama.outputs.latest_b }}-c${{ steps.deps.outputs.latest_compute }}."
+          git push origin HEAD:dev && echo "Recorded $REF on dev" || {
+            echo "::warning::could not push the advanced subtree; dev still records ${{ steps.decide.outputs.current_b }}. The next scheduled run will retry."
+          }
