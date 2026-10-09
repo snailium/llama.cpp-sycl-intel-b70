@@ -77,13 +77,24 @@ jobs:
             https://github.com/ggml-org/llama.cpp.git "$UP"
           git -C "$UP" fetch --quiet --tags --force origin "+refs/tags/*:refs/tags/*"
 
-          # --sort=-creatordate puts the newest tag first, so the first match of
-          # each pattern is the newest of that kind. grep -m1 (not `| head -1`)
-          # so grep is the last writer in the pipeline: with `head -1` grep gets
-          # SIGPIPE and writes "Broken pipe" noise into the log on every run.
+          # --sort=-creatordate puts the newest tag first, so the first exact
+          # match of each kind is the newest of that kind.
+          #
+          # The scan is a pure-bash loop on purpose. Any pipeline whose reader
+          # stops early (`| grep -m1`, `| head -1`) SIGPIPEs its writer and
+          # spams "Broken pipe" into the log on every single run. This loop
+          # consumes the whole list, so there is no early exit to signal.
+          #
+          # A fnmatch glob such as refs/tags/b[0-9]* cannot replace the regex:
+          # upstream really does carry the non-numeric tag
+          # b10964-b10964-b29c606, which that glob matches.
           TAGS=$(git -C "$UP" for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags)
-          LATEST_B=$(printf '%s\n' "$TAGS" | grep -m1 -E '^b[0-9]+$')
-          LATEST_V=$(printf '%s\n' "$TAGS" | grep -m1 -E '^v[0-9]+\.[0-9]+\.[0-9]+$')
+          LATEST_B=""
+          LATEST_V=""
+          while IFS= read -r t; do
+            if [ -z "$LATEST_B" ] && [[ "$t" =~ ^b[0-9]+$ ]]; then LATEST_B="$t"; fi
+            if [ -z "$LATEST_V" ] && [[ "$t" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then LATEST_V="$t"; fi
+          done <<< "$TAGS"
           [ -n "$LATEST_B" ] || { echo "::error::upstream has no b* tag"; exit 1; }
           [ -n "$LATEST_V" ] || { echo "::error::upstream has no v* tag"; exit 1; }
 
@@ -207,7 +218,11 @@ jobs:
           TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" "https://ghcr.io/v2/${REPO}/tags/list" | jq -r '.tags[]? // empty' || true)
 
           echo "should_advance=true" >> $GITHUB_OUTPUT
-          if [ -n "$TOKEN" ] && echo "$TAGS" | grep -qF "$PREFIX"; then
+          # Substring test in bash rather than `echo "$TAGS" | grep -q`: grep -q
+          # exits on the first hit, which SIGPIPEs the writer and prints
+          # "Broken pipe" noise. An empty TAGS (token/curl failure) simply does
+          # not match, so this stays a safe "build it" default.
+          if [ -n "$TOKEN" ] && [[ "$TAGS" == *"$PREFIX"* ]]; then
             echo "should_build=false" >> $GITHUB_OUTPUT
             echo "strategy=skip-duplicate" >> $GITHUB_OUTPUT
             echo "reason=Image ${PREFIX%?} already exists in GHCR - advancing the subtree to $LATEST_B without rebuilding."
