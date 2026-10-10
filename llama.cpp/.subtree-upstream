@@ -8,11 +8,11 @@
 # The fields below record exactly where the current content came from, so a
 # build can be traced back to an upstream commit and a b tag (the stable
 # workflow tags images by v* version; the dev workflow needs the b tag).
-tag=b11458
-b_tag=b11458
-commit=c479922ac520a08969b4c1dc154d7bbb3c386d85
-tag_object=c479922ac520a08969b4c1dc154d7bbb3c386d85
+tag=b11540
+b_tag=b11540
+commit=1e6f04a75e91da4bb66b5248f3fd4bdeff169d41
+tag_object=1e6f04a75e91da4bb66b5248f3fd4bdeff169d41
 tag_type=commit
 version=0.6.0
-synced=2026-10-07
-subject=hexagon: CPY/CONCAT/CONT/DUP overhaul to use DMA/HVX for all cases (#30067)
+synced=2026-10-10
+subject=sycl : accelerate MXFP4 MoE with arithmetic decoding and weight reordering (#29809)
