@@ -1,0 +1,21 @@
+4712213 <home>/b70-issue29-logs/server-rerun-a3-v3.log
+=== restore ===
+b70-dev-test-b11540
+b70-sycl
+  worker /health 200 (poll 5)
+  worker infers: 'ok'
+=== poll SMG /workers until BOTH ready ===
+  20:54:54  18090=True/ready 18080=False/not_ready
+  20:55:14  18090=True/ready 18080=False/not_ready
+  20:55:34  18090=True/ready 18080=False/not_ready
+  20:55:54  18090=True/ready 18080=False/not_ready
+  20:56:14  18090=True/ready 18080=False/not_ready
+  20:56:34  18090=True/ready 18080=True/ready
+  -> BOTH READY
+  routed: 'ok'
+=== final ===
+xtx-vulkan	Up 3 days (healthy)
+b70-sycl	Up 2 minutes (healthy)
+smg	Up 15 hours (healthy)
+b70-sycl  : RestartCount=0 OOMKilled=false
+xtx-vulkan: RestartCount=0 OOMKilled=false

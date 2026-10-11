@@ -1,0 +1,23 @@
+t1_html START utc=2026-10-11T05:42:44Z epoch=1791697364 req_before=2
+t1_html END   utc=2026-10-11T05:44:34Z epoch=1791697474 req_after=3
+t2_svg START utc=2026-10-11T05:44:35Z epoch=1791697475 req_before=3
+t2_svg END   utc=2026-10-11T05:47:44Z epoch=1791697664 req_after=4
+DONE
+t2_svg_r2 START utc=2026-10-11T05:48:47Z epoch=1791697727 req_before=4
+t2_svg_r2 END   utc=2026-10-11T05:51:26Z epoch=1791697886 req_after=5
+t2_svg_r3 START utc=2026-10-11T05:51:27Z epoch=1791697887 req_before=5
+t2_svg_r3 END   utc=2026-10-11T05:54:51Z epoch=1791698091 req_after=6
+a1_security START utc=2026-10-11T05:55:09Z epoch=1791698109 req_before=6
+a1_security END   utc=2026-10-11T05:59:12Z epoch=1791698353 req_after=22
+a2_hostinfo START utc=2026-10-11T05:59:15Z epoch=1791698355 req_before=22
+a2_hostinfo END   utc=2026-10-11T06:00:29Z epoch=1791698429 req_after=29
+a3_snowfall START utc=2026-10-11T06:00:32Z epoch=1791698432 req_before=29
+a3_snowfall END   utc=2026-10-11T06:28:17Z epoch=1791700097 req_after=370
+DONE
+v1 START utc=2026-10-11T06:28:28Z epoch=1791700108 req_before=370
+v1 END   utc=2026-10-11T06:30:15Z epoch=1791700215 req_after=371
+v2 START utc=2026-10-11T06:30:23Z epoch=1791700223 req_before=371
+v2 END   utc=2026-10-11T06:31:46Z epoch=1791700306 req_after=372
+v3 START utc=2026-10-11T06:31:54Z epoch=1791700314 req_before=372
+v3 END   utc=2026-10-11T06:33:56Z epoch=1791700436 req_after=373
+DONE

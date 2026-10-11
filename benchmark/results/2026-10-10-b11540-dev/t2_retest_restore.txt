@@ -1,0 +1,70 @@
+=== stability during T2 run ===
+candidate : RestartCount=0 OOMKilled=false
+xtx-vulkan: RestartCount=0 OOMKilled=false
+  SIGSEGV              0
+  UR_RESULT_ERROR      0
+  device lost          0
+  Failed to allocate   0
+  GGML_ASSERT          0
+  model buffers:
+0.00.473.165 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.478.345 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.486.991 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.555.961 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.596.069 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.771.280 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.772.325 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.788.962 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.795.765 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.827.903 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.854.215 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.896.768 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.01.095.527 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.01.144.735 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.02.632.880 I load_tensors:   CPU_Mapped model buffer size =   682.03 MiB
+0.02.632.881 I load_tensors:        SYCL0 model buffer size = 17402.38 MiB
+0.02.997.742 I load_tensors:   CPU_Mapped model buffer size =   682.03 MiB
+0.02.997.743 I load_tensors:        SYCL0 model buffer size = 17402.38 MiB
+0.03.898.628 I load_tensors:   CPU_Mapped model buffer size =   682.03 MiB
+0.03.898.630 I load_tensors:        SYCL0 model buffer size = 17402.38 MiB
+0.05.607.301 I load_tensors:   CPU_Mapped model buffer size =  1288.28 MiB
+0.05.607.302 I load_tensors:        SYCL0 model buffer size =  1718.71 MiB
+0.05.773.706 I load_tensors:   CPU_Mapped model buffer size =  1288.28 MiB
+0.05.773.707 I load_tensors:        SYCL0 model buffer size =  1718.71 MiB
+0.06.573.113 I load_tensors:   CPU_Mapped model buffer size =   682.03 MiB
+0.06.573.113 I load_tensors:        SYCL0 model buffer size = 17402.38 MiB
+0.07.873.767 I load_tensors:   CPU_Mapped model buffer size =  1288.28 MiB
+0.07.873.768 I load_tensors:        SYCL0 model buffer size =  1718.71 MiB
+0.09.285.642 I load_tensors:   CPU_Mapped model buffer size =   682.03 MiB
+0.09.285.643 I load_tensors:        SYCL0 model buffer size = 17402.38 MiB
+0.09.524.475 I load_tensors:   CPU_Mapped model buffer size =  1288.28 MiB
+0.09.524.475 I load_tensors:        SYCL0 model buffer size =  1718.71 MiB
+0.12.174.833 I load_tensors:   CPU_Mapped model buffer size =   682.03 MiB
+0.12.174.834 I load_tensors:        SYCL0 model buffer size = 17402.38 MiB
+0.12.760.328 I load_tensors:   CPU_Mapped model buffer size =  1288.28 MiB
+0.12.760.329 I load_tensors:        SYCL0 model buffer size =  1718.71 MiB
+0.17.515.307 I load_tensors:   CPU_Mapped model buffer size =   682.03 MiB
+0.17.515.309 I load_tensors:        SYCL0 model buffer size = 17402.38 MiB
+0.17.971.851 I load_tensors:   CPU_Mapped model buffer size =  1288.28 MiB
+0.17.971.852 I load_tensors:        SYCL0 model buffer size =  1718.71 MiB
+0.24.399.073 I load_tensors:   CPU_Mapped model buffer size =  1288.28 MiB
+0.24.399.074 I load_tensors:        SYCL0 model buffer size =  1718.71 MiB
+
+=== dump log, restore production ===
+5229270 <home>/b70-issue29-logs/server-t2-rerun.log
+b70-dev-test-b11540
+b70-sycl
+  worker /health 200 (poll 4)
+  worker infers: 'ok'
+  21:27:06  18090=True/ready 18080=False/failed
+  21:27:26  18090=True/ready 18080=False/failed
+  21:27:46  18090=True/ready 18080=False/failed
+  21:28:06  18090=True/ready 18080=False/failed
+  21:28:26  18090=True/ready 18080=False/failed
+  21:28:46  18090=True/ready 18080=True/ready
+  -> BOTH READY
+  routed: 'ok'
+=== final ===
+xtx-vulkan	Up 3 days (healthy)
+b70-sycl	Up 2 minutes (healthy)
+smg	Up 16 hours (healthy)

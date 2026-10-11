@@ -1,0 +1,3 @@
+a3_snowfall START utc=2026-10-11T15:44:47Z epoch=1791733487 req_before=373
+a3_snowfall END   utc=2026-10-11T16:33:20Z epoch=1791736400 req_after=654
+DONE

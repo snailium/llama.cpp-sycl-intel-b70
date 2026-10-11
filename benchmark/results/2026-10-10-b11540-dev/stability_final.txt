@@ -1,0 +1,26 @@
+candidate : RestartCount=0 OOMKilled=false Running=true
+xtx-vulkan: RestartCount=0 OOMKilled=false
+log lines : 2589983
+  SIGSEGV                0
+  segmentation fault     0
+  UR_RESULT_ERROR        0
+  device lost            0
+  out of memory          0
+  allocation failure     0
+  ggml_sycl_pool_vmm     0
+  Failed to allocate     0
+  stack smashing         0
+  Aborted                0
+  GGML_ASSERT            0
+--- model buffers (memory-splitting trap) ---
+0.00.827.903 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.00.827.903 I load_tensors:    SYCL_Host model buffer size =     0.00 MiB
+0.01.144.735 I load_tensors:        SYCL0 model buffer size =     0.00 MiB
+0.01.144.735 I load_tensors:    SYCL_Host model buffer size =     0.00 MiB
+0.17.515.307 I load_tensors:   CPU_Mapped model buffer size =   682.03 MiB
+0.17.515.309 I load_tensors:        SYCL0 model buffer size = 17402.38 MiB
+0.24.399.073 I load_tensors:   CPU_Mapped model buffer size =  1288.28 MiB
+0.24.399.074 I load_tensors:        SYCL0 model buffer size =  1718.71 MiB
+--- draft KV actually in force ---
+0.25.513.899 I spec common_specu: adding speculative implementation 'draft-mtp'
+0.25.513.901 I spec common_specu: - n_max=3, n_min=0, p_min=0.10, n_embd=5120, backend_sampling=1

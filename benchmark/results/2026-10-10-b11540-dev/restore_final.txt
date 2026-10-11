@@ -1,0 +1,24 @@
+=== FINAL state 2026-10-11T06:39:49Z ===
+xtx-vulkan	Up 2 days (healthy)
+b70-sycl	Up 2 minutes (healthy)
+smg	Up About an hour (healthy)
+
+b70-sycl  : RestartCount=0 OOMKilled=false
+xtx-vulkan: RestartCount=0 OOMKilled=false
+
+=== 1. worker /health ===
+{"status":"ok"}
+=== 2. worker infers ===
+  content= 'ok'
+=== 3. through the SMG router ===
+  routed content= 'ok' finish= stop
+=== 4. /workers ===
+  http://192.0.2.101:18090       healthy=True status=ready
+  http://192.0.2.101:18080       healthy=True status=ready
+
+=== production env drift check (SPEC_DRAFT_CACHE_TYPE names) ===
+LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K=q8_0
+LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_V=q8_0
+LLAMA_ARG_SPEC_DRAFT_MODEL=/models/mtp-Qwen3.8-27B-Q8_0.gguf
+LLAMA_ARG_SPEC_DRAFT_N_MAX=3
+LLAMA_ARG_SPEC_DRAFT_P_MIN=0.1

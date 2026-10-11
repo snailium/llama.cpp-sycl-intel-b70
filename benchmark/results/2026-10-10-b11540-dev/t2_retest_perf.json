@@ -1,0 +1,49 @@
+{
+  "per_sample": [
+    {
+      "sample": "t2_cold1",
+      "prompt_n": 32,
+      "prompt_ms": 671.79,
+      "fill_tok_s": 47.63,
+      "pred_n": 9609,
+      "eval_ms": 208543.73,
+      "decode_tok_s": 46.08,
+      "accepted": 6939,
+      "generated": 8007,
+      "accept_pct": 86.7
+    },
+    {
+      "sample": "t2_cold2",
+      "prompt_n": 32,
+      "prompt_ms": 663.47,
+      "fill_tok_s": 48.23,
+      "pred_n": 12007,
+      "eval_ms": 259242.3,
+      "decode_tok_s": 46.32,
+      "accepted": 8729,
+      "generated": 9831,
+      "accept_pct": 88.8
+    },
+    {
+      "sample": "t2_cold3",
+      "prompt_n": 32,
+      "prompt_ms": 673.54,
+      "fill_tok_s": 47.51,
+      "pred_n": 6299,
+      "eval_ms": 132314.2,
+      "decode_tok_s": 47.61,
+      "accepted": 4578,
+      "generated": 5160,
+      "accept_pct": 88.7
+    }
+  ],
+  "aggregate": {
+    "prompt_tok": 96,
+    "fill_tok_s": 47.79,
+    "completion_tok": 27915,
+    "decode_tok_s": 46.52,
+    "accepted": 20246,
+    "generated": 22998,
+    "accept_pct": 88.0
+  }
+}

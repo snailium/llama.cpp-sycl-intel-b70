@@ -1,0 +1,473 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" font-family="'Microsoft YaHei', 'PingFang SC', sans-serif">
+  <defs>
+    <!-- 背景渐变 -->
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1a1a3e"/>
+      <stop offset="100%" stop-color="#0a0a1a"/>
+    </radialGradient>
+
+    <!-- 大爆炸核心光晕 -->
+    <radialGradient id="explosionCore" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="20%" stop-color="#ffffcc"/>
+      <stop offset="40%" stop-color="#ffaa00"/>
+      <stop offset="60%" stop-color="#ff4400"/>
+      <stop offset="80%" stop-color="#aa1100"/>
+      <stop offset="100%" stop-color="#330000" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 阶段1光晕 -->
+    <radialGradient id="stage1Glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="30%" stop-color="#ffff88"/>
+      <stop offset="60%" stop-color="#ffcc00"/>
+      <stop offset="100%" stop-color="#ff6600" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 阶段2光晕 -->
+    <radialGradient id="stage2Glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffddaa"/>
+      <stop offset="40%" stop-color="#ff8833"/>
+      <stop offset="70%" stop-color="#cc3311"/>
+      <stop offset="100%" stop-color="#661100" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 阶段3光晕 -->
+    <radialGradient id="stage3Glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffaa66"/>
+      <stop offset="40%" stop-color="#cc6633"/>
+      <stop offset="70%" stop-color="#883322"/>
+      <offset="100%" stop-color="#441111" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 阶段4光晕 -->
+    <radialGradient id="stage4Glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#6688cc"/>
+      <stop offset="30%" stop-color="#335599"/>
+      <stop offset="60%" stop-color="#223366"/>
+      <offset="100%" stop-color="#111133" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 阶段5光晕 -->
+    <radialGradient id="stage5Glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#4466aa"/>
+      <stop offset="30%" stop-color="#224488"/>
+      <offset="60%" stop-color="#112255"/>
+      <offset="100%" stop-color="#0a0a2a" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 星系渐变 -->
+    <radialGradient id="galaxyGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="30%" stop-color="#aaccff"/>
+      <offset="60%" stop-color="#4477cc"/>
+      <offset="100%" stop-color="#223366" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 箭头标记 -->
+    <marker id="arrowHead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#88aaff"/>
+    </marker>
+
+    <!-- 时间轴渐变 -->
+    <linearGradient id="timelineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ff4400"/>
+      <offset="30%" stop-color="#ffaa00"/>
+      <offset="60%" stop-color="#6688cc"/>
+      <offset="100%" stop-color="#224488"/>
+    </linearGradient>
+
+    <!-- 星点滤镜 -->
+    <filter id="starGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- 柔和光晕滤镜 -->
+    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- 大爆炸核心滤镜 -->
+    <filter id="coreGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="1200" height="800" fill="url(#bgGrad)"/>
+
+  <!-- 背景星星 -->
+  <g opacity="0.6">
+    <circle cx="50" cy="30" r="1" fill="#ffffff"/>
+    <circle cx="120" cy="80" r="0.8" fill="#aaccff"/>
+    <circle cx="200" cy="40" r="1.2" fill="#ffffff"/>
+    <circle cx="350" cy="60" r="0.7" fill="#ffffff"/>
+    <circle cx="500" cy="25" r="1" fill="#ffddaa"/>
+    <circle cx="680" cy="50" r="0.9" fill="#ffffff"/>
+    <circle cx="820" cy="35" r="1.1" fill="#aaccff"/>
+    <circle cx="950" cy="70" r="0.8" fill="#ffffff"/>
+    <circle cx="1080" cy="45" r="1" fill="#ffffff"/>
+    <circle cx="1150" cy="20" r="0.7" fill="#ffddaa"/>
+    <circle cx="30" cy="150" r="0.9" fill="#ffffff"/>
+    <circle cx="180" cy="120" r="1.1" fill="#aaccff"/>
+    <circle cx="420" cy="100" r="0.8" fill="#ffffff"/>
+    <circle cx="600" cy="90" r="1" fill="#ffffff"/>
+    <circle cx="750" cy="130" r="0.7" fill="#ffddaa"/>
+    <circle cx="900" cy="110" r="1.2" fill="#ffffff"/>
+    <circle cx="1100" cy="140" r="0.8" fill="#aaccff"/>
+    <circle cx="80" cy="750" r="1" fill="#ffffff"/>
+    <circle cx="250" cy="770" r="0.8" fill="#aaccff"/>
+    <circle cx="450" cy="760" r="1.1" fill="#ffffff"/>
+    <circle cx="650" cy="780" r="0.9" fill="#ffddaa"/>
+    <circle cx="850" cy="755" r="1" fill="#ffffff"/>
+    <circle cx="1050" cy="775" r="0.7" fill="#aaccff"/>
+    <circle cx="1150" cy="740" r="1.2" fill="#ffffff"/>
+  </g>
+
+  <!-- 标题 -->
+  <text x="600" y="55" text-anchor="middle" font-size="32" font-weight="bold" fill="#ffffff" filter="url(#softGlow)">宇宙大爆炸理论</text>
+  <text x="600" y="85" text-anchor="middle" font-size="14" fill="#aabbdd">The Big Bang Theory — 从奇点到宇宙膨胀的演化历程</text>
+
+  <!-- ==================== 时间轴 ==================== -->
+  <line x1="80" y1="420" x2="1120" y2="420" stroke="url(#timelineGrad)" stroke-width="3" marker-end="url(#arrowHead)"/>
+  <text x="1130" y="425" font-size="12" fill="#88aaff">时间 →</text>
+
+  <!-- ==================== 阶段 1: 奇点 (t=0) ==================== -->
+  <g transform="translate(150, 280)">
+    <!-- 核心光晕 -->
+    <circle cx="0" cy="0" r="45" fill="url(#explosionCore)" filter="url(#coreGlow)"/>
+    <circle cx="0" cy="0" r="12" fill="#ffffff" opacity="0.9"/>
+
+    <!-- 时间标记 -->
+    <line x1="0" y1="45" x2="0" y2="420" stroke="#ff6633" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>
+    <circle cx="0" cy="420" r="5" fill="#ff4400"/>
+
+    <!-- 标签 -->
+    <text x="0" y="-60" text-anchor="middle" font-size="18" font-weight="bold" fill="#ffcc88">阶段一：奇点</text>
+    <text x="0" y="-38" text-anchor="middle" font-size="12" fill="#aabbcc">t = 0</text>
+
+    <!-- 说明框 -->
+    <rect x="-95" y="460" width="190" height="105" rx="8" ry="8" fill="#1a1a3e" stroke="#ff6633" stroke-width="1" opacity="0.9"/>
+    <text x="0" y="482" text-anchor="middle" font-size="11" fill="#ffffff">• 所有物质与能量</text>
+    <text x="0" y="500" text-anchor="middle" font-size="11" fill="#ffffff">  集中于无限小点</text>
+    <text x="0" y="518" text-anchor="middle" font-size="11" fill="#ffffff">• 温度与密度无限大</text>
+    <text x="0" y="536" text-anchor="middle" font-size="11" fill="#ffffff">• 时空尚未形成</text>
+    <text x="0" y="554" text-anchor="middle" font-size="11" fill="#ffaa88">（普朗克时期）</text>
+  </g>
+
+  <!-- ==================== 阶段 2: 暴涨 (t≈10⁻³²s) ==================== -->
+  <g transform="translate(340, 280)">
+    <!-- 膨胀光晕 -->
+    <circle cx="0" cy="0" r="70" fill="url(#stage1Glow)" filter="url(#coreGlow)" opacity="0.8"/>
+    <circle cx="0" cy="0" r="35" fill="url(#explosionCore)" filter="url(#coreGlow)"/>
+    <circle cx="0" cy="0" r="15" fill="#ffffff" opacity="0.85"/>
+
+    <!-- 向外辐射线 -->
+    <g stroke="#ffcc66" stroke-width="1.5" opacity="0.6">
+      <line x1="20" y1="0" x2="55" y2="0"/>
+      <line x1="-20" y1="0" x2="-55" y2="0"/>
+      <line x1="0" y1="20" x2="0" y2="55"/>
+      <line x1="0" y1="-20" x2="0" y2="-55"/>
+      <line x1="14" y1="14" x2="39" y2="39"/>
+      <line x1="-14" y1="14" x2="-39" y2="39"/>
+      <line x1="14" y1="-14" x2="39" y2="-39"/>
+      <line x1="-14" y1="-14" x2="-39" y2="-39"/>
+    </g>
+
+    <!-- 膨胀箭头 -->
+    <g stroke="#ffaa44" stroke-width="2" fill="none" opacity="0.7">
+      <path d="M 50,0 L 65,0" marker-end="url(#arrowHead)"/>
+      <path d="M -50,0 L -65,0" marker-end="url(#arrowHead)"/>
+      <path d="M 0,50 L 0,65" marker-end="url(#arrowHead)"/>
+      <path d="M 0,-50 L 0,-65" marker-end="url(#arrowHead)"/>
+    </g>
+
+    <!-- 时间标记 -->
+    <line x1="0" y1="70" x2="0" y2="420" stroke="#ffaa33" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>
+    <circle cx="0" cy="420" r="5" fill="#ffaa00"/>
+
+    <!-- 标签 -->
+    <text x="0" y="-95" text-anchor="middle" font-size="18" font-weight="bold" fill="#ffddaa">阶段二：宇宙暴涨</text>
+    <text x="0" y="-73" text-anchor="middle" font-size="12" fill="#aabbcc">t ≈ 10⁻³² 秒</text>
+
+    <!-- 说明框 -->
+    <rect x="-95" y="460" width="190" height="105" rx="8" ry="8" fill="#1a1a3e" stroke="#ffaa33" stroke-width="1" opacity="0.9"/>
+    <text x="0" y="482" text-anchor="middle" font-size="11" fill="#ffffff">• 宇宙以超光速</text>
+    <text x="0" y="500" text-anchor="middle" font-size="11" fill="#ffffff">  指数级膨胀</text>
+    <text x="0" y="518" text-anchor="middle" font-size="11" fill="#ffffff">• 温度降至 ~10²⁷K</text>
+    <text x="0" y="536" text-anchor="middle" font-size="11" fill="#ffffff">• 基本粒子产生</text>
+    <text x="0" y="554" text-anchor="middle" font-size="11" fill="#ffcc88">（暴涨时期）</text>
+  </g>
+
+  <!-- ==================== 阶段 3: 原初核合成 (t≈3min) ==================== -->
+  <g transform="translate(530, 280)">
+    <!-- 炽热等离子体 -->
+    <circle cx="0" cy="0" r="90" fill="url(#stage2Glow)" filter="url(#coreGlow)" opacity="0.7"/>
+    <circle cx="0" cy="0" r="50" fill="url(#explosionCore)" filter="url(#coreGlow)" opacity="0.6"/>
+
+    <!-- 粒子点 -->
+    <g fill="#ffcc88" opacity="0.8">
+      <circle cx="-30" cy="-20" r="3"/>
+      <circle cx="25" cy="-35" r="2.5"/>
+      <circle cx="-15" cy="30" r="3.5"/>
+      <circle cx="40" cy="15" r="2"/>
+      <circle cx="-45" cy="10" r="2.5"/>
+      <circle cx="10" cy="-45" r="3"/>
+      <circle cx="55" cy="-10" r="2"/>
+      <circle cx="-50" cy="-30" r="2.5"/>
+      <circle cx="35" cy="40" r="3"/>
+      <circle cx="-25" cy="50" r="2"/>
+    </g>
+
+    <!-- 核子符号 -->
+    <g font-size="10" fill="#ffddaa" opacity="0.9">
+      <text x="-48" y="-18" text-anchor="middle">p</text>
+      <text x="23" y="-33" text-anchor="middle">n</text>
+      <text x="-13" y="33" text-anchor="middle">p</text>
+      <text x="38" y="17" text-anchor="middle">n</text>
+    </g>
+
+    <!-- 时间标记 -->
+    <line x1="0" y1="90" x2="0" y2="420" stroke="#cc6633" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>
+    <circle cx="0" cy="420" r="5" fill="#cc5522"/>
+
+    <!-- 标签 -->
+    <text x="0" y="-115" text-anchor="middle" font-size="18" font-weight="bold" fill="#ffbb88">阶段三：原初核合成</text>
+    <text x="0" y="-93" text-anchor="middle" font-size="12" fill="#aabbcc">t ≈ 3 分钟 ~ 20 分钟</text>
+
+    <!-- 说明框 -->
+    <rect x="-95" y="460" width="190" height="105" rx="8" ry="8" fill="#1a1a3e" stroke="#cc6633" stroke-width="1" opacity="0.9"/>
+    <text x="0" y="482" text-anchor="middle" font-size="11" fill="#ffffff">• 质子和中子结合</text>
+    <text x="0" y="500" text-anchor="middle" font-size="11" fill="#ffffff">  形成轻元素核</text>
+    <text x="0" y="518" text-anchor="middle" font-size="11" fill="#ffffff">• 氢 ~75%、氦 ~25%</text>
+    <text x="0" y="536" text-anchor="middle" font-size="11" fill="#ffffff">• 温度 ~10⁹ K</text>
+    <text x="0" y="554" text-anchor="middle" font-size="11" fill="#ffaa77">（核合成时期）</text>
+  </g>
+
+  <!-- ==================== 阶段 4: 复合与CMB (t≈38万年) ==================== -->
+  <g transform="translate(720, 280)">
+    <!-- 冷却背景 -->
+    <circle cx="0" cy="0" r="100" fill="url(#stage3Glow)" filter="url(#coreGlow)" opacity="0.6"/>
+
+    <!-- CMB微波辐射波纹 -->
+    <g stroke="#ff8855" fill="none" opacity="0.4">
+      <circle cx="0" cy="0" r="30" stroke-width="1.5"/>
+      <circle cx="0" cy="0" r="50" stroke-width="1.2"/>
+      <circle cx="0" cy="0" r="70" stroke-width="1"/>
+      <circle cx="0" cy="0" r="90" stroke-width="0.8"/>
+    </g>
+
+    <!-- 原子形成示意 -->
+    <g opacity="0.85">
+      <!-- 原子1 -->
+      <circle cx="-40" cy="-25" r="6" fill="#ffaa77"/>
+      <circle cx="-40" cy="-25" r="2" fill="#ffffff"/>
+      <ellipse cx="-40" cy="-25" rx="12" ry="5" fill="none" stroke="#aaccff" stroke-width="1" transform="rotate(30,-40,-25)"/>
+      <circle cx="-30" cy="-28" r="1.5" fill="#aaccff"/>
+
+      <!-- 原子2 -->
+      <circle cx="35" cy="20" r="6" fill="#ffaa77"/>
+      <circle cx="35" cy="20" r="2" fill="#ffffff"/>
+      <ellipse cx="35" cy="20" rx="12" ry="5" fill="none" stroke="#aaccff" stroke-width="1" transform="rotate(-20,35,20)"/>
+      <circle cx="44" cy="17" r="1.5" fill="#aaccff"/>
+
+      <!-- 原子3 -->
+      <circle cx="-10" cy="40" r="6" fill="#ffaa77"/>
+      <circle cx="-10" cy="40" r="2" fill="#ffffff"/>
+      <ellipse cx="-10" cy="40" rx="12" ry="5" fill="none" stroke="#aaccff" stroke-width="1" transform="rotate(60,-10,40)"/>
+      <circle cx="-3" cy="48" r="1.5" fill="#aaccff"/>
+    </g>
+
+    <!-- 光子释放 -->
+    <g stroke="#ffddaa" stroke-width="1.5" opacity="0.7">
+      <line x1="-25" y1="-15" x2="-55" y2="-40"/>
+      <line x1="20" y1="30" x2="55" y2="55"/>
+      <line x1="0" y1="50" x2="-15" y2="85"/>
+    </g>
+
+    <!-- 时间标记 -->
+    <line x1="0" y1="100" x2="0" y2="420" stroke="#886644" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>
+    <circle cx="0" cy="420" r="5" fill="#886644"/>
+
+    <!-- 标签 -->
+    <text x="0" y="-130" text-anchor="middle" font-size="18" font-weight="bold" fill="#ddaa88">阶段四：复合时代</text>
+    <text x="0" y="-108" text-anchor="middle" font-size="12" fill="#aabbcc">t ≈ 38 万年</text>
+
+    <!-- 说明框 -->
+    <rect x="-95" y="460" width="190" height="105" rx="8" ry="8" fill="#1a1a3e" stroke="#886644" stroke-width="1" opacity="0.9"/>
+    <text x="0" y="482" text-anchor="middle" font-size="11" fill="#ffffff">• 电子与原子核结合</text>
+    <text x="0" y="500" text-anchor="middle" font-size="11" fill="#ffffff">  形成中性原子</text>
+    <text x="0" y="518" text-anchor="middle" font-size="11" fill="#ffffff">• 光子自由传播</text>
+    <text x="0" y="536" text-anchor="middle" font-size="11" fill="#ffffff">• 宇宙微波背景辐射</text>
+    <text x="0" y="554" text-anchor="middle" font-size="11" fill="#ddaa88">（CMB 产生）</text>
+  </g>
+
+  <!-- ==================== 阶段 5: 结构形成 (t≈1亿年) ==================== -->
+  <g transform="translate(900, 280)">
+    <!-- 黑暗时代背景 -->
+    <circle cx="0" cy="0" r="110" fill="url(#stage4Glow)" filter="url(#coreGlow)" opacity="0.5"/>
+
+    <!-- 星系团雏形 - 引力聚集 -->
+    <g opacity="0.8">
+      <!-- 中心大质量区域 -->
+      <circle cx="0" cy="0" r="25" fill="#334466" opacity="0.6"/>
+      <circle cx="0" cy="0" r="15" fill="#445577" opacity="0.5"/>
+
+      <!-- 星系点 -->
+      <g filter="url(#starGlow)">
+        <circle cx="-35" cy="-20" r="4" fill="#aaccff"/>
+        <circle cx="30" cy="-30" r="3" fill="#88bbff"/>
+        <circle cx="-20" cy="35" r="3.5" fill="#99ccff"/>
+        <circle cx="40" cy="25" r="2.5" fill="#77aaff"/>
+        <circle cx="-45" cy="15" r="3" fill="#88bbff"/>
+        <circle cx="15" cy="-45" r="3" fill="#99ccff"/>
+        <circle cx="50" cy="-5" r="2.5" fill="#aaccff"/>
+        <circle cx="-30" cy="-45" r="2.5" fill="#88bbff"/>
+        <circle cx="25" cy="45" r="3" fill="#99ccff"/>
+        <circle cx="-10" cy="-60" r="2" fill="#77aaff"/>
+      </g>
+
+      <!-- 引力连线 -->
+      <g stroke="#4466aa" stroke-width="0.8" opacity="0.4">
+        <line x1="-35" y1="-20" x2="0" y2="0"/>
+        <line x1="30" y1="-30" x2="0" y2="0"/>
+        <line x1="-20" y1="35" x2="0" y2="0"/>
+        <line x1="40" y1="25" x2="0" y2="0"/>
+        <line x1="-45" y1="15" x2="0" y2="0"/>
+        <line x1="15" y1="-45" x2="0" y2="0"/>
+      </g>
+
+      <!-- 暗物质晕示意 -->
+      <ellipse cx="0" cy="0" rx="60" ry="55" fill="none" stroke="#335588" stroke-width="1" stroke-dasharray="3,4" opacity="0.3"/>
+    </g>
+
+    <!-- 时间标记 -->
+    <line x1="0" y1="110" x2="0" y2="420" stroke="#556688" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>
+    <circle cx="0" cy="420" r="5" fill="#556688"/>
+
+    <!-- 标签 -->
+    <text x="0" y="-145" text-anchor="middle" font-size="18" font-weight="bold" fill="#99aacc">阶段五：结构形成</text>
+    <text x="0" y="-123" text-anchor="middle" font-size="12" fill="#aabbcc">t ≈ 1 亿年 ~ 数十亿年</text>
+
+    <!-- 说明框 -->
+    <rect x="-95" y="460" width="190" height="105" rx="8" ry="8" fill="#1a1a3e" stroke="#556688" stroke-width="1" opacity="0.9"/>
+    <text x="0" y="482" text-anchor="middle" font-size="11" fill="#ffffff">• 暗物质引力作用</text>
+    <text x="0" y="500" text-anchor="middle" font-size="11" fill="#ffffff">  使气体聚集</text>
+    <text x="0" y="518" text-anchor="middle" font-size="11" fill="#ffffff">• 第一代恒星点亮</text>
+    <text x="0" y="536" text-anchor="middle" font-size="11" fill="#ffffff">• 星系逐渐形成</text>
+    <text x="0" y="554" text-anchor="middle" font-size="11" fill="#8899bb">（结构演化）</text>
+  </g>
+
+  <!-- ==================== 阶段 6: 现代宇宙 (t≈138亿年) ==================== -->
+  <g transform="translate(1070, 280)">
+    <!-- 现代宇宙背景 -->
+    <circle cx="0" cy="0" r="120" fill="url(#stage5Glow)" filter="url(#coreGlow)" opacity="0.4"/>
+
+    <!-- 螺旋星系 -->
+    <g transform="translate(0, -10)">
+      <ellipse cx="0" cy="0" rx="45" ry="18" fill="#223366" opacity="0.5"/>
+      <path d="M -40,-5 Q -20,-25 0,-15 Q 20,-5 40,-15 Q 25,15 0,10 Q -25,5 -40,-5" fill="#334488" opacity="0.6"/>
+      <path d="M -35,0 Q -15,-18 5,-10 Q 25,-2 35,-10 Q 22,12 0,8 Q -22,3 -35,0" fill="#445599" opacity="0.5"/>
+      <circle cx="0" cy="0" r="8" fill="#aaccff" filter="url(#starGlow)"/>
+      <circle cx="0" cy="0" r="4" fill="#ffffff"/>
+    </g>
+
+    <!-- 周围小星系 -->
+    <g filter="url(#starGlow)">
+      <circle cx="-55" cy="-35" r="3" fill="#88aaff"/>
+      <circle cx="50" cy="-40" r="2.5" fill="#99bbff"/>
+      <circle cx="-60" cy="25" r="2.5" fill="#77aaff"/>
+      <circle cx="55" cy="30" r="3" fill="#88aaff"/>
+      <circle cx="-30" cy="55" r="2" fill="#99bbff"/>
+      <circle cx="35" cy="55" r="2.5" fill="#77aaff"/>
+    </g>
+
+    <!-- 宇宙大尺度结构连线 -->
+    <g stroke="#4466aa" stroke-width="0.8" opacity="0.3">
+      <line x1="-55" y1="-35" x2="0" y2="-10"/>
+      <line x1="50" y1="-40" x2="0" y2="-10"/>
+      <line x1="-60" y1="25" x2="0" y2="-10"/>
+      <line x1="55" y1="30" x2="0" y2="-10"/>
+    </g>
+
+    <!-- 暗能量加速膨胀箭头 -->
+    <g stroke="#6688cc" stroke-width="1.5" fill="none" opacity="0.6">
+      <path d="M -70,-60 L -90,-75" marker-end="url(#arrowHead)"/>
+      <path d="M 70,-60 L 90,-75" marker-end="url(#arrowHead)"/>
+      <path d="M -70,60 L -90,75" marker-end="url(#arrowHead)"/>
+      <path d="M 70,60 L 90,75" marker-end="url(#arrowHead)"/>
+    </g>
+
+    <!-- 时间标记 -->
+    <line x1="0" y1="120" x2="0" y2="420" stroke="#334466" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>
+    <circle cx="0" cy="420" r="5" fill="#334466"/>
+
+    <!-- 标签 -->
+    <text x="0" y="-160" text-anchor="middle" font-size="18" font-weight="bold" fill="#7799cc">阶段六：现代宇宙</text>
+    <text x="0" y="-138" text-anchor="middle" font-size="12" fill="#aabbcc">t ≈ 138 亿年（现在）</text>
+
+    <!-- 说明框 -->
+    <rect x="-95" y="460" width="190" height="105" rx="8" ry="8" fill="#1a1a3e" stroke="#334466" stroke-width="1" opacity="0.9"/>
+    <text x="0" y="482" text-anchor="middle" font-size="11" fill="#ffffff">• 星系团与超星系团</text>
+    <text x="0" y="500" text-anchor="middle" font-size="11" fill="#ffffff">  形成宇宙网结构</text>
+    <text x="0" y="518" text-anchor="middle" font-size="11" fill="#ffffff">• 暗能量驱动加速膨胀</text>
+    <text x="0" y="536" text-anchor="middle" font-size="11" fill="#ffffff">• 宇宙仍在持续演化</text>
+    <text x="0" y="554" text-anchor="middle" font-size="11" fill="#7799cc">（当前状态）</text>
+  </g>
+
+  <!-- ==================== 底部注释区 ==================== -->
+  <rect x="80" y="600" width="1040" height="160" rx="12" ry="12" fill="#0d0d25" stroke="#334466" stroke-width="1" opacity="0.9"/>
+
+  <text x="600" y="630" text-anchor="middle" font-size="16" font-weight="bold" fill="#aabbdd">关键科学依据</text>
+
+  <!-- 左列 -->
+  <g transform="translate(120, 655)">
+    <circle cx="0" cy="-4" r="3" fill="#ffaa44"/>
+    <text x="12" y="0" font-size="12" fill="#ccddee">宇宙微波背景辐射（CMB）</text>
+    <text x="12" y="18" font-size="11" fill="#8899aa">1965年彭齐亚斯和威尔逊发现，温度约2.725K</text>
+    <text x="12" y="34" font-size="11" fill="#8899aa">是大爆炸后遗留的"余晖"，最强证据之一</text>
+  </g>
+
+  <!-- 中列 -->
+  <g transform="translate(480, 655)">
+    <circle cx="0" cy="-4" r="3" fill="#ffaa44"/>
+    <text x="12" y="0" font-size="12" fill="#ccddee">哈勃红移与宇宙膨胀</text>
+    <text x="12" y="18" font-size="11" fill="#8899aa">星系光谱红移表明所有星系正在远离我们</text>
+    <text x="12" y="34" font-size="11" fill="#8899aa">距离越远退行速度越快（哈勃定律）</text>
+  </g>
+
+  <!-- 右列 -->
+  <g transform="translate(840, 655)">
+    <circle cx="0" cy="-4" r="3" fill="#ffaa44"/>
+    <text x="12" y="0" font-size="12" fill="#ccddee">轻元素丰度</text>
+    <text x="12" y="18" font-size="11" fill="#8899aa">观测到的氢、氦、锂比例与核合成</text>
+    <text x="12" y="34" font-size="11" fill="#8899aa">理论预测高度吻合（H:He ≈ 3:1）</text>
+  </g>
+
+  <!-- 底部补充 -->
+  <line x1="120" y1="705" x2="1080" y2="705" stroke="#334466" stroke-width="0.5"/>
+  <text x="600" y="728" text-anchor="middle" font-size="11" fill="#667788">大爆炸理论是目前解释宇宙起源与演化的最成功模型，由勒梅特于1927年首次提出，后经伽莫夫、阿尔弗等人发展完善。</text>
+  <text x="600" y="748" text-anchor="middle" font-size="11" fill="#556677">注意：大爆炸并非在空间中某一点发生，而是空间本身的膨胀——所有地方都曾是"中心"。</text>
+
+  <!-- 图例 -->
+  <g transform="translate(920, 618)">
+    <rect x="0" y="-12" width="180" height="30" rx="5" ry="5" fill="#1a1a3e" stroke="#445577" stroke-width="0.5"/>
+    <circle cx="15" cy="3" r="4" fill="#ff6633"/>
+    <text x="25" y="7" font-size="10" fill="#aabbcc">早期（高温）</text>
+    <circle cx="95" cy="3" r="4" fill="#4477cc"/>
+    <text x="105" y="7" font-size="10" fill="#aabbcc">晚期（冷却）</text>
+  </g>
+
+</svg>

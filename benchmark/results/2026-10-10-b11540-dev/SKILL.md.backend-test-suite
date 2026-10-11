@@ -1,0 +1,792 @@
+---
+name: backend-test-suite
+title: Backend test suite T1/T2 + A1-A3 + V1-V3 (card-agnostic)
+description: The card-agnostic execution procedure for the standard inference-backend battery — 2 text tasks (T1/T2), 3 agentic tasks (A1/A2/A3) and 3 vision tasks (V1-V3) through the isolated dsh-container harness, with the mandatory per-task metrics (prefill/TTFT/decode, plus draft acceptance whenever speculative decoding is on), the strict T1 -> T2 -> A1 -> A2 -> A3 order, the rule that canonical prompts are injected verbatim and no sampling parameter is ever overridden, the trim auto-tune prerequisite (the backend must be declared as a profile provider, then DSH_TRIM_AUTO_TUNE=1, which retunes a route where dsh's stock headroom was capping the trigger while deliberately leaving a small-window route at stock), the non-gating A1 review-coverage observation (how many of the repo's files the agent actually read, reported as scope choice), and the archival convention. Pair with a target skill (b70-backend-test for Arc B70/SYCL, xtx-backend-test for RX 7900 XTX/Vulkan) that supplies the golden launch config and the card-exclusivity steps.
+version: 2.2.0
+metadata:
+  hermes:
+    tags: [benchmark, test-suite, dsh-container, headless, metrics, vision, llamacpp, promotion, evidence-archive]
+---
+
+# Backend test suite: T1/T2 + A1-A3 + V1-V3
+
+The card-agnostic half of backend validation. Pair it with a target skill
+(`b70-backend-test`, `xtx-backend-test`) that supplies the golden launch config, the
+card-exclusivity steps and the hardware pitfalls.
+
+## Order and scope
+
+```
+T1 -> T2 -> A1 -> A2 -> A3 -> V1 -> V2 -> V3
+```
+
+Run them in that order; **do not reorder.** Skip V1-V3 when the served model has no vision
+capability (no `--mmproj` / projector loaded), but still carry the three rows in the report
+reading `N/A — no vision capability in the served model`, never blank. Confirm the basis
+from the server's startup output or command line rather than from the model name.
+
+## Where things run
+
+The harness container runs wherever you launch `docker run`; that may or may not be the
+backend's host, which is fine. All GPU actions cross an ssh boundary from the control host.
+**Do not identify the host by port** — `.90`'s 18080 is an unrelated container, and this has
+cost a full wasted run. Manage *production* containers through Portainer, not ssh, and get
+consent before touching them; ssh is for the backend under test.
+
+## Task definitions
+
+| ID | kind | what it measures | pass criteria |
+|---|---|---|---|
+| T1 | direct | long structured generation | **HTML structure correct**: parses, `<html>`/`<head>`/`<body>` closed, ends at `</html>`, `finish_reason=stop`. Length is not a criterion |
+| T2 | direct | structured generation, second markup language | **SVG structure correct**: parses as XML, single `<svg>` root, `viewBox` present, closed, `finish_reason=stop` |
+| A1 | agent | realistic software-development work — acquire a repo, read it, report | Concrete issues, each with risk level, reason and fix. Fabricated findings fail |
+| A2 | agent | **tool-call ability, including the system's tools** beyond the harness's own | Valid JSON; values **gathered not asserted** (the session shows shell tools invoked), graded against **the machine that ran the container**, never the backend's host — see Step 5 |
+| A3 | agent | **research ability — finding a usable source is the task** | A total with its unit, the source, and the underlying data, re-checkable from that source. Any legitimate source is acceptable; none is privileged. A number without a source, or a unit error, fails |
+| V1 | direct | screenshot reading without inventing | Name/level and popup content match the ground truth below |
+| V2 | direct | finding the labels yourself on a technical diagram | Labels match the ground-truth list below; invented labels fail |
+| V3 | direct | image reading **with an anchoring trap** (the prompt's examples are wrong) | Ground truth below. **Returning the prompt's example values fails** — that is the trap |
+
+### A1 observation: review coverage (reported, **never gating**)
+
+A1 asks for a security review but does not say *what to read*, so the agent chooses its own
+scope. That choice is worth measuring — and it must **not** affect PASS/FAIL, because the
+prompt deliberately leaves scope open. Report it as an observation row beside the A1 result.
+
+Compute it from the session, not from the report's own claims:
+
+1. **Inventory the clone** the agent made — count real files, excluding `.git`:
+   ```bash
+   find <workspace>/<repo> -type f -not -path '*/.git/*' | wc -l
+   ```
+2. **Extract every path the agent actually touched**: `read` calls' `file_path`, plus path
+   tokens appearing in `bash` commands (e.g. `grep -n … mqtt2ha/web.go`).
+3. **Compare**, and report three numbers: `touched / inventory`, plus which files were missed.
+
+```bash
+python3 - <<'PY'
+import json, subprocess, re, os, sys
+# usage: pass the decompressed session .jsonl and the cloned repo root
+sess, root = sys.argv[1], sys.argv[2]
+ev = [json.loads(l) for l in open(sess, errors='replace') if l.strip()]
+def args(d):
+    a = d.get('arguments')
+    if isinstance(a, str):
+        try: a = json.loads(a)
+        except Exception: a = {}
+    return a if isinstance(a, dict) else {}
+touched = set()
+for e in ev:
+    if e.get('type') != 'tool/call': continue
+    d = e.get('data') or {}; n = d.get('name'); a = args(d)
+    if n == 'read':
+        fp = str(a.get('file_path', ''))
+        if '/mqtt2ha/' in fp: touched.add(fp.split('/mqtt2ha/', 1)[1])
+    elif n == 'bash':
+        for m in re.findall(r'mqtt2ha/([A-Za-z0-9._/+-]+)', str(a.get('command', ''))):
+            touched.add(m.rstrip('.,;)'))
+inv = {os.path.relpath(os.path.join(dp, f), root)
+       for dp, _, fs in os.walk(root) if '/.git' not in dp for f in fs}
+inv -= {'.git'}
+print(f"  touched {len(touched & inv)} / {len(inv)}  ({len(touched & inv)/len(inv):.0%})")
+print(f"  missed : {sorted(inv - touched)}")
+PY
+```
+
+**What to look for, from a measured run (2026-09-27, Qwen3.8-27B, `mqtt2ha`, 25 files):**
+
+| arm | files touched | coverage | missed |
+|---|---|---|---|
+| no auto-tune | 11 | 44 % | 13 |
+| auto-tune | 11 | 44 % | 14 |
+| auto-tune + `DSH_TRIM_PRUNER=auto` | 14 | 56 % | 11 |
+
+All three arms **skipped every `_test.go` file** (`bridge_`, `fakeclient_`, `infer_`,
+`store_`, `uniqueid_`, `web_handler_`, `yamlstore_test.go`) and most docs. Test files leak
+internal assumptions and boundary conditions, so for a *security* review that is a real gap —
+but it is **the agent's scope choice, not a backend property**, which is exactly why it is an
+observation and not a gate.
+
+**Caveat on counting.** Do not count `bash` substrings naively — a naive token scan
+over-counts badly (it caught directory names and repeated tokens and reported 23 touched
+where the true figure was 14). Restrict the `read` side to `file_path` values that resolve
+inside the clone, and require a real filename shape on the `bash` side.
+
+
+## Prompts (canonical — the single source)
+
+Inject these **verbatim, byte for byte**. This is the only place they appear in this file;
+the examples below reference variables filled from here.
+
+**t1_html:**
+> 制作一个网页，列出从公元996年到公元1024年间世界上发生的大事件。请输出完整的HTML代码，用中文。
+
+**t2_svg:**
+> 制作一张SVG，解释宇宙大爆炸理论。请输出完整的SVG代码，文字用中文。
+
+**a1_security:**
+> 对代码库 https://github.com/snailium/mqtt2ha 做安全性审查。请列出发现的安全问题，说明风险等级和理由，并给出修复建议。
+
+**a2_hostinfo:**
+> 查找所在宿主机的详细配置信息，并以JSON格式输出（包括CPU、内存、磁盘、操作系统、GPU等）。
+
+**a3_snowfall:**
+> 计算从2025年11月1日到2026年12月31日，渥太华机场（YOW）的降雪总量。请说明计算方法、数据来源和过程，给出结果。
+
+**V1:**
+> 这是游戏角色必杀技效果界面截图。请说出界面中的角色名称和等级。请阅读高亮弹窗中的文字，告诉我这是什么弹窗，其中的内容是什么
+
+**V2:**
+> 这是主板点位图。请逐一列出你看到的所有接口/元件
+
+**V3:**
+> 这是轮胎侧壁照片。请读取侧壁上可见的模压文字：1)尺寸规格(如245/60R17);2)载重指数和速度等级(如104T);3)品牌和型号名;4)认证/适用标识(All-Terran等)。
+
+### Ground truth
+
+**V1:**
+> 答案：角色名称“莉拉”，等级700。弹窗内容是必杀技“千律”，LV6，达成XR2阶级时激活，给范围内的敌人，850%伤害，[Lv.5防御力减少](8秒)，给正面直线范围敌人，400%伤害。增益信息，减少5级防御力：防御力减少75%；沉默：目标将无法使用技能
+
+**V2** (21 labels):
+> FCH、M2_1、M2_2、DIMM1、DIMM2、DIMM3、DIMM4、PCIE16X、CODEC、AUDIO、USB2_LAN、USB31A、USB32A、HDMI、VGA、F_PANEL、F_AUDIO、L23、U64、L21、U65
+
+**V3:** 无法识别品牌；M+S；三峰雪花标；**255/70R18**；**118S**. The prompt's `245/60R17` /
+`104T` / `All-Terran` are deliberate decoys — an answer echoing them has copied the question
+instead of reading the image and **fails**. Declaring the brand unreadable is correct.
+
+## Rules (non-negotiable)
+
+**1. No parameter is overridden except two fields.** `temperature`, `top_p`, `top_k`,
+`min_p`, the penalties and the context length all come from the backend as deployed.
+
+**Scope: this governs what the test sends, and nothing else.** It is about the *test
+definition* never measuring a configuration nobody runs. It does not govern the harness's
+own client — if the harness adjusts sampling internally for its own reasons, that is its
+business: do not proxy it, log it, or interfere with it, and do not treat its choices as a
+deviation. The harness working normally is the success condition.
+
+The only request fields permitted:
+
+| field | value | why |
+|---|---|---|
+| thinking off | `chat_template_kwargs: {"enable_thinking": false}` | task protocol, not sampling — without it the generation tasks reason instead of emitting markup |
+| `max_tokens` | **32768** for T1/T2 and V1-V3 | a generation cap, not sampling; it keeps runs comparable instead of letting the context wall cut answers |
+
+`stream: true` on T1/T2 is transport, not sampling — TTFT cannot be measured without it.
+For A1-A3 the harness's own `maxTokens` must fit `contextWindow` (use 16384 at a 32768
+context); a mismatch makes long tasks return HTTP 400.
+
+
+**2. Inject the canonical prompt verbatim.** Nothing else, ever: no hints, examples, schema
+hints, tool names, output skeletons, no mention of the harness, the mount layout or
+`/workspace`, no re-prompting, and **do not answer a clarifying question the agent asks** —
+a question is a result. If a task cannot be completed from the canonical prompt, the task
+definition is wrong; fix the definition, not the run. Diagnostics (probing tools,
+writability, network) are legitimate but use their own `DSH_HOME`, and are not task results.
+
+**3. Never use these variants** (all were real, and each removes the thing its task measures):
+
+| task | forbidden variant | what it takes away |
+|---|---|---|
+| A1 | `…（仅限本地命令，不要使用网络工具）…` | acquiring the code, and the network it needs |
+| A1 | `…请先获取该仓库的实际代码（用 git clone 或网络访问真实仓库）…` | the discovery that fetching is the work |
+| A1 | `…克隆到本地后逐文件审查。` | how to do the review |
+| A2 | `…请用实际的系统命令（如 lscpu/free/df/nvidia-smi/uname 等）采集后输出JSON。` | the discovery that system tools are the way in |
+| A3 | `…请获取真实气象数据（可调用天气API）…` | the search |
+| A3 | `…请使用 Open-Meteo Archive API（…daily=snowfall_sum，坐标…时区…）…` | the entire method, and the choice of source |
+| V1 | the five-question wording `…逐项回答：1)必杀技名称和等级；…消耗多少EP；…` | superseded; asked different things |
+| V1 | `必杀技名称和等级是多少?直接答` | reduces the task to one field |
+| V2 | `…标注：CPU插座、DIMM内存槽、PCIE插槽、M.2、各类IO接口(…)…` | enumerates the categories to find |
+| V3 | the wording with **true** values as examples (`如255/70R18`, `如118S`) | puts the answers in the question |
+
+**4. The vision inputs ship with this skill**, in `assets/` next to this file. They were
+copied byte-for-byte from their upstream source, the `b70-inference-test` repository
+(`https://github.com/snailium/b70-inference-test` → `test_suite/`), which is where they
+should be re-fetched if the hashes ever disagree.
+
+| file | bytes | sha256 prefix |
+|---|---:|---|
+| `assets/game_screenshot_Lila.jpg` | 616615 | `ed583e569d4609d5` |
+| `assets/motherboard_layout.png` | 354361 | `42172d37792d2fce` |
+| `assets/tire_25570R18.jpg` | 5412561 | `f5b03befd0447f6b` |
+
+A resized or re-encoded image measures something else, so verify before use (Step 0).
+
+**5. Prepare from scratch every run — a run is never a continuation of another.**
+
+All four were violated on 2026-10-04 and each one silently degraded the run rather than
+failing it, which is what makes them rules.
+
+| # | rule | what happens if you skip it |
+|---|---|---|
+| 5a | **`docker pull` the harness image**, by digest if you have one. Never rely on a cached `:latest`. | Measured: the run used `dsh@sha256:b42c8bf2` (built 2026-09-23) while the registry's `:latest` was `sha256:8d32b577`. dsh **0.1.5-rc.3** instead of **0.1.7-rc.2** — and on 0.1.7 a `settings.yaml`-only route **does not take**, so a correctly-pulled run fails with `AUTH: … ****dummy is invalid`. The stale image *masked* that misconfiguration. |
+| 5b | **Create a brand-new `DSH_HOME`** per run (`mktemp -d`, or `<run-tag>/dsh-home`). Never reuse a directory from a previous run. | Profiles carry persisted tuning, session records and settings. Reusing them means the run measures the previous run's compaction tuning. (On 2026-10-04 this one *was* done — but by hand, not by procedure, which is the actual failure mode.) |
+| 5c | **Read prompts from this file at run time.** Do not transcribe them into a runner, and do not reuse a previous run's scripts. | A hard-coded prompt keeps testing last month's question while the report claims it tested this month's. Verified on 2026-10-04: the transcribed prompts happened to be byte-identical, so **prompt fidelity** was not a contaminant in that run (its numbers were separately invalidated by 5d). The method would have diverged silently on the next edit. See the extractor recipe in Step 0. |
+| 5d | **Re-read the target's golden config every run** (`docs/GOLDEN-CONFIG.md` in the image's repo). Do not reconstruct it from memory, and do not read it off a running production container. | The same run dropped the golden's entire sampling block (`LLAMA_ARG_TEMPERATURE=0.7`, `TOP_P=0.80`, `TOP_K=20`, the three penalties) and passed **no sampling flags at all**, so the server ran its own defaults (`temp=1.0, top_p=0.95`) rather than the golden's 0.7/0.80/20/1.5. The report then claimed the golden sampling was in force. **Both the numbers and the report were wrong, and neither was visible without reading the file.** |
+
+Related trap, for 5d: the two cards' goldens **differ in mmproj placement** — the B70 puts
+the projector on the GPU, the XTX uses `--no-mmproj-offload`. Carrying one card's decision
+onto the other is exactly what 5d prevents. When in doubt, the file wins over memory.
+
+**A run that reports its configuration must have read it from the running server**, not from
+what it intended to launch. **Ask the server, not the log:**
+
+```bash
+curl -s "http://<HOST>:<PORT>/props" | python3 -c '
+import json,sys
+p=json.load(sys.stdin)["default_generation_settings"]["params"]
+for k in ("temperature","top_p","top_k","min_p",
+          "presence_penalty","frequency_penalty","repeat_penalty"):
+    print(f"  {k:20} = {p.get(k)}")'
+```
+
+> ⚠️ **Do not grep the startup log for `temp`/`top_p`.** The loader prints
+> `llama_model_loader: - kv N: general.sampling.temp …` for the **values embedded in the
+> GGUF file**, which are unrelated to what the server is running with. Grepping that line
+> reports the *model's* metadata and will read as a wrong configuration when the flags are
+> in fact correct (measured 2026-10-04: a run correctly launched at the golden's 0.7/0.80
+> showed `general.sampling.temp = 1.000000` from the GGUF and looked broken). `/props` is
+> authoritative; the log is not.
+
+If `/props` disagrees with the golden, the run is invalid — fix the launcher and re-run, do
+not annotate the discrepancy in the report.
+
+## Execution
+
+### Step 0: Prompt and input setup
+
+**Read the prompts from this file — do not transcribe them** (Rule 5c). `assets/prompt_source.py`
+parses this file's `**t1_html:**`-style markers, so a runner takes prompts as data:
+
+```bash
+SKILL_DIR=<path-to>/backend-test-suite      # the directory holding this file
+cp "$SKILL_DIR/SKILL.md" "$RUNDIR/skill/"  # the runner reads the copy it was given,
+                                           # and the report records its sha256
+python3 "$SKILL_DIR/assets/prompt_source.py" "$RUNDIR/skill/SKILL.md"
+# -> prints the sha256 and all 8 prompts; raises KeyError if a marker is missing,
+#    which means this file changed shape and a human decides, not a stale string
+
+# In a runner:
+#   from prompt_source import load_prompts
+#   P = load_prompts(os.environ["SKILL_FILE"])
+```
+
+Run it once to prove the plumbing, and keep the printed sha256 in the report:
+
+```bash
+sha256sum "$SKILL_DIR/SKILL.md"    # the question being asked, pinned
+```
+
+**Do not hand-copy these into a script.** The literals below are here to be read, not
+transcribed — a character of your own is a different test:
+
+```
+T1=''   # t1_html        V1=''   # V1
+T2=''   # t2_svg         V2=''   # V2
+A1=''   # a1_security    V3=''   # V3
+A2=''   # a2_hostinfo
+A3=''   # a3_snowfall
+```
+
+```bash
+SKILL_DIR=<path-to>/backend-test-suite      # the directory holding this file
+IMG_V1="$SKILL_DIR/assets/game_screenshot_Lila.jpg"
+IMG_V2="$SKILL_DIR/assets/motherboard_layout.png"
+IMG_V3="$SKILL_DIR/assets/tire_25570R18.jpg"
+sha256sum "$IMG_V1" "$IMG_V2" "$IMG_V3"   # expect the hashes in the table above
+```
+
+### Step 0b: Fresh harness image and fresh test home (Rule 5a/5b)
+
+Before anything else, so a stale artifact cannot masquerade as this week's test:
+
+```bash
+HARNESS=ghcr.io/snailium/dsh-container/dsh:latest
+docker pull "$HARNESS"                     # NOT optional — a cached :latest is a week old
+HARNESS_DIGEST=$(docker image inspect "$HARNESS" --format '{{index .RepoDigests 0}}')
+echo "harness: $HARNESS_DIGEST"            # goes in the report
+
+RUNDIR=$(mktemp -d)/$(date -u +%Y%m%d-%H%M%S)
+TEST_HOME="$RUNDIR/dsh-home"
+mkdir -p "$TEST_HOME" "$TEST_HOME/workspace" "$RUNDIR/skill"
+```
+
+Both the harness digest and the skill sha256 belong in the report's header, next to the
+backend image digest. **All three move**; a report that pins only one is not reproducible.
+
+### Step 1: Fresh test home
+
+```bash
+TEST_HOME=$(mktemp -d)/dsh-test-home
+mkdir -p "$TEST_HOME" "$TEST_HOME/workspace"     # workspace: see Pitfalls
+
+cat > "$TEST_HOME/settings.yaml" <<'YAML'
+llm-pi-ai:
+  providers:
+    lc:
+      apiKeyEnv: B70_API_KEY
+      api: openai-completions
+      baseURL: http://<HOST>:<PORT>/v1          # backend under test
+      models:
+        - id: <MODEL_ID>
+          input: [ text ]                       # [ text, image ] for a vision model
+          contextWindow: <CTX>                  # must be <= the backend's real context
+          maxTokens: 16384                      # must fit contextWindow
+          reasoningEfforts: { off: null, low: low, high: high }
+          compat: { thinkingFormat: qwen }
+agent-default-model: { provider: lc, model: <MODEL_ID> }
+YAML
+```
+
+On 0.1.5 this file is the **only** model configuration; the profile itself carries none. **On 0.1.7 it
+configures the provider but *not* the route**, so a run built from this snippet alone goes to the real
+DeepSeek API — measured in a container: the file was imported and renamed, produced no settings store, and
+the first request died on `AUTH: Authentication Fails, Your api key: ****dummy is invalid`. The route
+(`agent-default-model`) is no longer a settings key; put it in a patch layer
+(`$DSH_HOME/cordis.patch.yml`, or a `--patch` overlay), which always applies. The full procedure, the
+precedence order and the failure-signature table live in the **`dsh-provider-config`** skill (global
+library: `~/.dsh/skills/dsh-provider-config/SKILL.md`) — read it before debugging a route that reaches the
+wrong endpoint.
+
+**This declaration is also the prerequisite for trim auto-tuning** (Step 1b): the
+tuner reads the route inventory through the `llm` service, so a backend that is not
+declared here as a provider has no window to tune against.
+
+### Step 1b: Compaction trim auto-tune
+
+The harness image ships `dsh-command-context-trim` (bundle
+`dsh-command-context-trim`, row id `context-trim`). Its `autoTuneCompaction`
+feature sizes the `compaction-basic` row to the **real** route window. What that buys depends on the
+route, so read the paragraph after the table: on a large window it moves the trigger from dsh's
+window-agnostic cap to the ratio (*fewer* compactions), while on a small window stock has no trigger at
+all and the planner deliberately keeps it that way. `-e DSH_TRIM_AUTO_TUNE=1` stays the switch for the
+suite — on a stock-disabled route it simply does nothing.
+
+```bash
+-e DSH_TRIM_AUTO_TUNE=1
+```
+
+**Why this changes the test, not just the harness.** dsh's stock `headroomTokens`
+is `65536`. The trigger is
+`min(thresholdRatio × window, messageBudget − headroomTokens)`, so on a **131072**
+window with a 16384 output reserve the *headroom* term decides, not the ratio:
+
+| | messageBudget − headroom | effective trigger | as % of window |
+|---|---|---|---|
+| stock (`headroomTokens: 65536`) | 49152 | 49152 | **37.5 %** |
+| tuned (`headroomTokens: 9831`) | 104857 | 104857 | **80 %** |
+
+Without auto-tune an agent task compacts at ~37 %, so the run measures a
+**differently-shaped workload** — more compactions, earlier summarisation, shorter
+effective context. Since auto-tune is now the deployment default, a run without it
+is not measuring the shipped configuration. Report which mode was used.
+
+**Small windows are the exception, and enabling it there costs time.** Where a route's message budget
+(`window − maxTokens`) is at or below dsh's stock 65536 headroom, stock has *no* pressure trigger, so
+setting `headroomTokens: 0` does not move a compaction — it creates one on every crossing. Measured on
+Bonsai 2 @ RTX 5060 8GB (40960/8192), same task, single route: **15 -> 24** compactions with the trigger
+on, against a local summarizer that blocks the turn for 209-372 s per call. The plugin therefore keeps
+such a route at stock by default (it writes the route a policy with `headroomTokens: 65536`, leaving the
+pressure budget negative) and lets dsh's overflow path plus the model-free `/trim` handle the wall.
+Opting in is explicit: `--include-stock-disabled-routes`, or `tuneStockDisabledRoutes: true`.
+
+**Verified on 0.1.7-rc.2 with this exact harness** (route declared as in Step 1,
+`contextWindow: 131072`, `maxTokens: 16384`): the plugin printed
+
+```
+context-trim: auto compaction tune: Retuned compaction-basic (headroomTokens,
+maxTokens, modelPolicies, thresholdRatio).
+```
+
+and persisted into `$DSH_HOME/profiles/<profile>/cordis.patch.yml`:
+
+```yaml
+- id: compaction-basic
+  config:
+    thresholdRatio: 0.8
+    headroomTokens: 0
+    maxTokens: 8192
+    modelPolicies:
+      - provider: lc
+        model: <MODEL_ID>
+        thresholdRatio: 0.8
+        headroomTokens: 9831        # = (131072 - 16384) - floor(0.8 * 131072)
+```
+
+9831 is exactly `messageBudget − floor(ratio × window)`. If the number you see
+differs, the route the plugin resolved is not the one you intended.
+
+**Check the outcome line; do not assume success.** The tuner writes one stderr line
+and one `context-trim/tuned` session record (nothing per request, and never anything
+in the model's context). Two outcomes matter:
+
+- `no routable provider/model pairs were found …` is **no longer printed**: an inventory that is not
+  resolvable yet is a *deferral* now (debug level only, never stderr), so its presence in a log means an
+  older plugin, and its absence is not a signal. Use the persisted row (below) or `/trim tune check`.
+- No tuning line at all, and no `context-trim/tuned` record: either the provider row or its
+  `contextWindow` is missing — the tuner sizes against the composed profile and does **not** probe the
+  server, so fix Step 1 — or the route is stock-disabled by design (small window, above), which looks the
+  same from the log. The persisted row tells them apart.
+- `Retuned …` / `Already tuned: nothing written.` — the write landed, or was already
+  correct (`tuneCompactionAtRuntime` is idempotent, so re-runs write nothing).
+
+Inspect the persisted row whenever a run's results depend on it:
+
+```bash
+sed -n '/compaction-basic/,/^[^ ]/p' "$TEST_HOME/profiles/headless_lc/cordis.patch.yml"
+```
+
+A boot overlay carries the same tuning, which is why a one-shot
+`dsh headless "task"` needs nothing else — but the row above is the durable record,
+and it is what a later boot reuses.
+
+### Step 2: Smoke test
+
+```bash
+timeout 3600 docker run --rm --network host \
+  -e DSH_MODE=headless -e DSH_TEST_PROFILE=headless_lc \
+  -e DSH_TRIM_AUTO_TUNE=1 \
+  -e DSH_HOME=/dsh-home -e B70_API_KEY=test -e HOME=/root \
+  -v "$TEST_HOME:/dsh-home" -v "$TEST_HOME/workspace:/workspace" \
+  ghcr.io/snailium/dsh-container/dsh:latest "只回复两个字符:ok" 2>&1 | tail -5
+```
+
+Expect `ok`. First run seeds the profile + `pnpm install` (~1-3 min); later runs reuse it.
+
+### Step 3: T1/T2 (direct, streaming)
+
+```bash
+# JSON is built programmatically so the prompt is never re-quoted - re-quoting is one of
+# the ways prompt text silently changes.
+python3 - "$T1" > t1_request.json <<'PY'
+import json, sys
+print(json.dumps({
+    "model": "<MODEL_ID>",
+    "messages": [{"role": "user", "content": sys.argv[1]}],
+    "max_tokens": 32768,
+    "stream": True,
+    "chat_template_kwargs": {"enable_thinking": False},
+}))
+PY
+curl -sN http://<HOST>:<PORT>/v1/chat/completions \
+  -H "Content-Type: application/json" --data-binary @t1_request.json > t1_raw.jsonl
+# T2 is the same call with "$T2".
+```
+
+Grading is mechanical — never from the model's description of what it produced:
+
+```bash
+python3 - <<'PY'
+import json, re
+from html.parser import HTMLParser
+import xml.etree.ElementTree as ET
+
+def strip_fence(c):
+    m = re.match(r"\s*```[a-zA-Z0-9]*\s*\n(.*?)\n?\s*```\s*$", c, re.S)
+    return (m.group(1) if m else c).strip()
+
+for name, kind in (("t1", "html"), ("t2", "xml")):
+    d = json.load(open(f"{name}_result.json"))
+    ch = d["choices"][0]
+    doc = strip_fence(ch["message"].get("content") or "")
+    checks = {"finish_reason == stop": ch.get("finish_reason") == "stop"}
+    if kind == "html":
+        stack, bad = [], []
+        class P(HTMLParser):
+            VOID = {"area","base","br","col","embed","hr","img","input","link","meta","source","track","wbr"}
+            def handle_starttag(self, t, a):
+                if t not in self.VOID: stack.append(t)
+            def handle_endtag(self, t):
+                if stack and stack[-1] == t: stack.pop()
+                else: bad.append(t)
+        P().feed(doc)
+        checks |= {"parses / balanced": not bad and not stack,
+                   "html/head/body": all(f"<{t}" in doc for t in ("html","head","body")),
+                   "ends at </html>": doc.endswith("</html>")}
+    else:
+        try:
+            root = ET.fromstring(doc)
+            checks |= {"well-formed XML": True,
+                       "single <svg> root": root.tag.split("}")[-1] == "svg",
+                       "has viewBox": "viewBox" in root.attrib,
+                       "ends at </svg>": doc.endswith("</svg>")}
+        except ET.ParseError as e:
+            checks |= {"well-formed XML": False}
+            print(f"  {name}: XML parse error: {e}")
+    print(f"  {name}: {'PASS' if all(checks.values()) else 'FAIL'}")
+    for k, v in checks.items():
+        print(f"    {'OK  ' if v else 'FAIL'} {k}")
+PY
+```
+
+### Step 4: A1 (the agent fetches its own target)
+
+**Do not clone the repository for the agent and do not mount it** — acquiring the code is
+part of the task. The image has `git`, `curl`, `wget`, `tar`, `unzip`, `python3` and `node`.
+
+```bash
+timeout 3600 docker run --rm --network host \
+  -e DSH_MODE=headless -e DSH_TEST_PROFILE=headless_lc \
+  -e DSH_TRIM_AUTO_TUNE=1 \
+  -e DSH_HOME=/dsh-home -e B70_API_KEY=test -e HOME=/root \
+  -v "$TEST_HOME:/dsh-home" -v "$TEST_HOME/workspace:/workspace" \
+  ghcr.io/snailium/dsh-container/dsh:latest "$A1" > a1_run.log 2>&1
+rc=$?; [ "$rc" = "124" ] && echo "TIMEOUT 1h (killed)" >> a1_run.log
+```
+
+### Step 5: A2/A3
+
+```bash
+for task in A2 A3; do
+  eval "prompt=\$$task"; low=$(echo "$task" | tr 'A-Z' 'a-z')
+  timeout 3600 docker run --rm --network host \
+    -e DSH_MODE=headless -e DSH_TEST_PROFILE=headless_lc \
+    -e DSH_TRIM_AUTO_TUNE=1 \
+    -e DSH_HOME=/dsh-home -e B70_API_KEY=test -e HOME=/root \
+    -v "$TEST_HOME:/dsh-home" -v "$TEST_HOME/workspace:/workspace" \
+    ghcr.io/snailium/dsh-container/dsh:latest "$prompt" > "${low}_run.log" 2>&1
+  rc=$?; [ "$rc" = "124" ] && echo "TIMEOUT 1h (killed)" >> "${low}_run.log"
+done
+```
+
+**Grading A2.** Expected values come from **the machine that ran the container**, taken from
+where you issued `docker run` — never from the backend's host. A container legitimately sees
+a mix, so grade per field:
+
+| field | correct answer |
+|---|---|
+| CPU, memory, kernel | the **container host's** (containers share the kernel) |
+| OS / distro | the **image's** |
+| in a container | stated (`/.dockerenv`, overlayfs) |
+| disk | the container filesystem view |
+| GPU | **absent**, stated as such — "no GPU visible inside this container" is correct; an invented GPU model is the failure |
+
+The values must also have been gathered, not asserted: the session log should show shell
+tools being invoked (see the `dsh-session-records` skill for reading sessions).
+
+### Step 6: V1-V3 (vision)
+
+Skip entirely for a text-only backend (see "Order and scope"). Inputs and hashes: Step 0.
+
+```bash
+python3 - "$V1" "$IMG_V1" jpeg > v1_request.json <<'PY'
+import base64, json, sys
+prompt, path, fmt = sys.argv[1], sys.argv[2], sys.argv[3]
+b64 = base64.b64encode(open(path, "rb").read()).decode()
+print(json.dumps({
+    "model": "<MODEL_ID>",
+    "messages": [{"role": "user", "content": [
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {"url": f"data:image/{fmt};base64,{b64}"}}]}],
+    "max_tokens": 32768,
+    "chat_template_kwargs": {"enable_thinking": False},
+}))
+PY
+curl -s http://<HOST>:<PORT>/v1/chat/completions \
+  -H "Content-Type: application/json" --data-binary @v1_request.json > v1_result.json
+# repeat with "$V2"/"$IMG_V2"/png and "$V3"/"$IMG_V3"/jpeg
+```
+
+A vision tower also needs `preprocessor_config.json` + `video_preprocessor_config.json` in
+the model directory; fetch them from the HF `main` branch if the pinned revision lacks them.
+
+### Step 7: Metrics (mandatory)
+
+Every test reports **prefill rate, TTFT and decode rate**, and **draft acceptance rate plus
+K whenever speculative decoding is on** — acceptance at the same tier as the other three,
+never an optional extra. A row with a blank acceptance cell is an incomplete run.
+
+| metric | how |
+|---|---|
+| prefill rate | prompt_tokens / TTFT |
+| TTFT | first output token − request send |
+| decode rate | completion_tokens / (end − first token) |
+| draft acceptance | accepted drafts / proposed drafts, **with K**, comparable only at equal K |
+
+Rules: report exact denominators (`usage` / `prompt_n`, `predicted_n`); never a blended
+tok/s; never `wall_s` in place of decode rate; record reasoning tokens separately. For A1-A3
+the client is the harness, so recover the three metrics from the dsh session log
+(`step/start.time`, `usage.inputTokens/outputTokens`, `stream[].time/dt`) — the
+`dsh-session-records` skill has the format and `llama-server-metrics-extraction` the
+recipes. Do not report them as N/A.
+
+**Decide the capture mode before running**, and say which you used:
+
+- with `-v`: per-request `timings`, full fidelity; the log grows to MBs per call.
+- without `-v`: only `slot print_timing`, a subset — then state that the figures are
+  weighted over "requests that emitted timings", not the task's request count.
+
+**Dump the container log before removing the container.** For A1-A3 the acceptance rate
+exists *only* there — the harness client never sees it:
+
+```bash
+docker logs <container> > a_full.log 2>&1     # FIRST
+docker rm -f <container>                      # THEN
+```
+
+### Step 8: Acceptance
+
+PASS / FAIL / TIMEOUT per test against the criteria in "Task definitions". **rc=0 is not
+proof of delivery**: a long task can hit the context wall and exit 0 without a final report.
+
+## Restoring production
+
+`/health` returning ok is **not** restoration. Stopping a backend opens the router's circuit
+breaker, and the router does not always close it again — the platform can look restored
+while every routed request returns 503. Verify in order:
+
+```bash
+docker start <production-container>
+curl -s http://<host>:<worker-port>/health                     # 1. up
+curl -s http://<host>:<worker-port>/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"<MODEL>","messages":[{"role":"user","content":"回复ok"}],"max_tokens":16,"chat_template_kwargs":{"enable_thinking":false}}'
+                                                              # 2. actually infers
+curl -s http://<host>:<router-port>/v1/chat/completions \
+  -H 'Content-Type: application/json' -H 'X-SMG-Routing-Key: restore-check' \
+  -d '{"model":"<MODEL>","messages":[{"role":"user","content":"回复ok"}],"max_tokens":16,"chat_template_kwargs":{"enable_thinking":false}}'
+                                                              # 3. THE STEP USUALLY MISSED
+curl -s http://<host>:<router-port>/workers                    # 4. router's own view
+```
+
+Step 3 is the acceptance test: `no_available_workers` / 503 means the restore is incomplete.
+
+**Bound the probe.** A restore probe is a liveness check, not a measured run, so give it a
+small `max_tokens` — the parameter rule governs *test tasks*, not probes. Measured
+2026-09-25: an unbounded probe on this model degenerated into a repetition loop (8,680
+tokens of `/` and still going) and hung the check for 240 s, returning an empty body that
+looked like a dead service while the service was healthy. A bounded probe answered in
+0.97 s.
+If it fails, `docker restart <router-container>`, wait ~30 s, re-run step 3 and require a
+real completion. The router is shared production infrastructure — report the failure and ask
+if your instructions require consent, but do not leave a 503 in place. Record the routed
+request and the `/workers` state before and after in the report.
+
+## Pitfalls
+
+- **A stale harness image does not fail the run — it silently changes what is being
+  measured, and it can *mask* a real misconfiguration.** On 2026-10-04 the run used a
+  cached `dsh:latest` that was a week old (0.1.5-rc.3 while the registry served
+  0.1.7-rc.2). Because 0.1.5 takes the route from `settings.yaml` and 0.1.7 does **not**,
+  the old image let a route that would have failed loudly on the new one pass unnoticed.
+  Pull first (Rule 5a); if setup fails right after pulling, that is the pull working, not
+  the pull breaking something.
+- **Reporting a configuration you did not read back from the server is the same failure as
+  misconfiguring it.** The same run launched without the golden's sampling block, ran at
+  `temp=1.0 / top_p=0.95` (llama.cpp defaults), and the report still claimed
+  "sampling inherited from the backend as deployed (`--temp 0.7 --top-p 0.80`)" — copied
+  from the *production* container's flags, not from what was launched. Read the values back
+  with the `/props` query above before writing them down; if they disagree with the golden,
+  the run is invalid (Rule 5d).
+- **A previous run's scripts are a trap even when they look right.** `run_t1t2.py` from an
+  earlier run hard-coded `"temperature": 0.2`, which violates Rule 1 outright. Read the
+  golden and this file each run; do not copy a prior runner (Rule 5c).
+- **Trim auto-tune fails silently into dsh's default, and the run still looks fine.**
+  Without `DSH_TRIM_AUTO_TUNE=1` (or when the profile declares no `contextWindow`)
+  compaction fires at ~37 % of a 131072 window instead of the intended ~80 %, so agent
+  tasks compact more often and measure a different workload. The only signal is one
+  stderr line — `no routable provider/model pairs were found…`. **Never assume the
+  tune landed**: grep the run log for `auto compaction tune:` and confirm
+  `headroomTokens` in `cordis.patch.yml` equals
+  `(contextWindow − maxTokens) − floor(0.8 × contextWindow)`.
+- **`/workspace` must be mounted, or every agent task fails.** The entrypoint drops to
+  `node` (uid 1000) while `/workspace` in the image is root-owned, so `workspace-write` has
+  nowhere to write. Mount a directory **you** created at `/workspace` — the mount inherits
+  the host directory's ownership, and letting Docker create it gives you root again.
+  Symptom: `Both writes failed (no writable file surface anywhere — /workspace tmpdir mkdir denied)`.
+- **`--entrypoint` is ignored by the harness image**: it always runs
+  `/usr/local/bin/entrypoint.sh`. To inspect the container, ask the harness through its bash
+  tool, or read `docker image inspect`.
+- **A per-task `docker logs --since/--until` window can cut the very request it measures.**
+  `--until` has second granularity, while `slot print_timing` is written just *after* a
+  request finishes, so a tight window drops the tail; and because one task's end timestamp
+  equals the next one's start, the next window silently re-includes the earlier block. Both
+  happened on 2026-09-25 and produced a zeroed row and a row holding its neighbour's
+  numbers. Allow a few seconds of slack, take the **last** block in the window for a
+  single-request task, and cross-check against the arm's full container log.
+- **Never test against the production dsh home** (`~/.dsh`). Always a disposable home.
+- Container healthcheck state is meaningless here (the headless process reports unhealthy
+  while working normally).
+- Agent history grows without bound; a long task can hit the context wall
+  (`input + maxTokens > contextWindow` → HTTP 400) and exit 0 without a report.
+- A non-fatal `ERR_PNPM_IGNORED_BUILDS` (opencli build script blocked by supply-chain
+  policy) is expected and harmless.
+- **If you seed the profile by hand, `chown` it to uid 1000**, or boot dies with `EACCES`
+  on `cordis.yml`.
+- `dsh-relay` in the headless bundle list breaks boot (`waiting for service: webServer`); if
+  it reappears, drop it from `dsh.profile.bundles` in the test home only.
+- First boot of a vLLM XPU stack runs torch.compile (~80 s); retry the health poll.
+
+## Report template
+
+```markdown
+# <Backend> Test Report — <card> · <image tag>
+Date / host / card / backend / model / KV / spec decode (with K):
+Image digest: <sha256:...>          # tags move; a digest is the durable record
+Harness digest: <sha256:...>        # dsh-container/dsh:latest moves too
+Sampling: inherited from the backend - record what it was launched with; only two request
+          fields are sent (thinking-off, max_tokens) - state both
+Trim auto-tune: on (DSH_TRIM_AUTO_TUNE=1) - effective compaction trigger <N>% of the
+          <CTX> window, headroomTokens=<H>; OFF means dsh's stock 65536 headroom applied
+          and the task compacted at <M>% instead - state which, and the persisted row
+
+## Results Summary
+Every row MUST carry prefill rate, TTFT and decode rate; when speculative decoding is on,
+draft acceptance and K are mandatory too. Missing cells read "N/A — <reason>", never blank.
+
+| Task | Status | prompt_tok | prefill tok/s | TTFT s | completion_tok | decode tok/s | accept % | Notes |
+|---|---|---|---|---|---|---|---|---|
+| T1 | PASS/FAIL/TIMEOUT | | | | | | | HTML structure correct? |
+| T2 | ... | | | | | | | SVG structure correct? |
+| A1 | ... | | | | | | | issues found |
+| A2 | ... | | | | | | | JSON valid, values gathered? |
+| A3 | ... | | | | | | | total, unit, source, data shown? |
+| V1 | ... | | | | | | | name/level and popup match ground truth? |
+| V2 | ... | | | | | | | labels match; none invented? |
+| V3 | ... | | | | | | | 255/70R18 + 118S read, not the decoys? |
+
+**A1 review coverage (observation — reported, never gating):**
+
+```
+files touched / inventory : 14 / 25  (56 %)
+read calls               : 14
+missed                   : LICENSE, README.md, go.mod, go.sum, .dockerignore, .gitignore,
+                           bridge_test.go, fakeclient_test.go, infer_test.go, store_test.go,
+                           uniqueid_test.go, web_handler_test.go, yamlstore_test.go
+notable                  : all 7 _test.go files skipped — a real gap for a security review,
+                           recorded as scope choice, not scored
+```
+
+## Stability
+RestartCount before/after, OOMKilled, any SIGSEGV / alloc failure / device loss, with the
+log line that shows it.
+
+## Verdict
+Promotion decision, stated plainly, plus what would change it.
+```
+
+## Archive the run
+
+Any run that justifies a promotion is archived next to its evidence. **File it under the
+dated build tag** (e.g. `server-dev-b11158-1-20260924-2006`) in `benchmark/` of the image's
+repo — never under a pointer like `stable` or `server-dev`, which move and would leave the
+directory describing something else. If the run was performed through a pointer, say which
+dated tag it resolved to at the time.
+
+Record the digest of **every moving part**: the backend image, the harness image, and any
+model or drafter pulled by tag rather than by digest. The digest in the report and the tag in
+the directory must agree.
+
+Contents: `REPORT.md`, the T1/T2 outputs with the code fence stripped (so they open as
+documents), and the A1-A3 sessions in **both** forms — `.jsonl.zstd` byte-exact as dsh wrote
+it, and decompressed `.jsonl` so it can be read without tooling. A `.lock` sibling is not
+part of the log. New builds **add** a directory; never overwrite one.
+
+Sessions contain whatever the agent read, and they go into a repository. Scan before
+committing:
+
+```bash
+grep -rlE 'ghp_[A-Za-z0-9_]{20,}|github_pat_|sk-[A-Za-z0-9]{20,}|Bearer [A-Za-z0-9._-]{20,}|hf_[A-Za-z0-9]{20,}' .
+```
+
+Expect hits when a task reviews source code (`Authorization`, `password`, `passwd` in
+excerpts and in path-traversal analysis) — read each one, and do not skip the scan.

@@ -1,0 +1,12 @@
+{
+  "task": "a3_snowfall",
+  "calls": 281,
+  "largest_prompt": 58421,
+  "fill_tok_s": 431.85,
+  "first_prompt_eval_s": 1.728,
+  "completion_tok": 43121,
+  "decode_tok_s": 28.75,
+  "accept_pct": 92.2,
+  "accepted": 31587,
+  "generated": 34269
+}

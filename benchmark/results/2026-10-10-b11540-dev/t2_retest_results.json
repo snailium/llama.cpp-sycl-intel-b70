@@ -1,0 +1,55 @@
+[
+  {
+    "sample": "t2_cold1",
+    "req_before": 726,
+    "req_after": 727,
+    "finish": "stop",
+    "ttft_client_s": 0.681,
+    "wall_s": 209.2,
+    "chars": 21731,
+    "fenced": true,
+    "chars_after_svg_close": 4,
+    "checks": {
+      "finish_reason == stop": true,
+      "well-formed XML": false,
+      "parse_error": "not well-formed (invalid token): line 40, column 13"
+    },
+    "verdict": "FAIL"
+  },
+  {
+    "sample": "t2_cold2",
+    "req_before": 727,
+    "req_after": 728,
+    "finish": "stop",
+    "ttft_client_s": 0.669,
+    "wall_s": 259.9,
+    "chars": 28152,
+    "fenced": true,
+    "chars_after_svg_close": 468,
+    "checks": {
+      "finish_reason == stop": true,
+      "well-formed XML": false,
+      "parse_error": "not well-formed (invalid token): line 1, column 0"
+    },
+    "verdict": "FAIL"
+  },
+  {
+    "sample": "t2_cold3",
+    "req_before": 728,
+    "req_after": 729,
+    "finish": "stop",
+    "ttft_client_s": 0.678,
+    "wall_s": 133.0,
+    "chars": 14428,
+    "fenced": true,
+    "chars_after_svg_close": 4,
+    "checks": {
+      "finish_reason == stop": true,
+      "well-formed XML": true,
+      "single <svg> root": true,
+      "has viewBox": true,
+      "ends at </svg>": true
+    },
+    "verdict": "PASS"
+  }
+]

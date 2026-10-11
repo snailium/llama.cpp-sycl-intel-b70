@@ -1,0 +1,109 @@
+{
+  "hostname": "control-host",
+  "os": {
+    "name": "Debian GNU/Linux 12 (bookworm)",
+    "version": "12",
+    "codename": "bookworm",
+    "kernel": "7.0.0-34-generic",
+    "architecture": "x86_64",
+    "virtualization": "HP ProDesk 600 G3 DM (Bare Metal)"
+  },
+  "cpu": {
+    "model": "Intel(R) Core(TM) i5-7500T CPU @ 2.70GHz",
+    "vendor": "GenuineIntel",
+    "family": 6,
+    "model_id": 158,
+    "stepping": 9,
+    "sockets": 1,
+    "cores_per_socket": 4,
+    "threads_per_core": 1,
+    "total_logical_cpus": 4,
+    "base_frequency_ghz": 2.7,
+    "max_frequency_ghz": 3.3,
+    "min_frequency_ghz": 0.8,
+    "cache": {
+      "l1d": "128 KiB (4 instances)",
+      "l1i": "128 KiB (4 instances)",
+      "l2": "1 MiB (4 instances)",
+      "l3": "6 MiB (1 instance)"
+    },
+    "flags_highlight": [
+      "avx",
+      "avx2",
+      "aes",
+      "fma",
+      "sse4_2",
+      "vmx"
+    ],
+    "virtualization_support": "VT-x"
+  },
+  "memory": {
+    "total": "14 GiB",
+    "used": "5.5 GiB",
+    "free": "676 MiB",
+    "buff_cache": "9.2 GiB",
+    "available": "9.1 GiB",
+    "swap_total": "4.0 GiB",
+    "swap_used": "2.0 GiB"
+  },
+  "disk": {
+    "filesystems": [
+      {
+        "mount": "/",
+        "type": "overlay",
+        "size": "457G",
+        "used": "296G",
+        "available": "138G",
+        "use_percent": "69%"
+      },
+      {
+        "mount": "/dsh-home",
+        "device": "/dev/nvme0n1p2",
+        "size": "457G",
+        "used": "296G",
+        "available": "138G",
+        "use_percent": "69%"
+      }
+    ],
+    "physical_disks": [
+      {
+        "device": "sda",
+        "size": "476.9 GB",
+        "partitions": [
+          "sda1 (476.9 GB)"
+        ]
+      },
+      {
+        "device": "nvme0n1",
+        "size": "465.8 GB",
+        "partitions": [
+          "nvme0n1p1 (1 GB)",
+          "nvme0n1p2 (464.7 GB)"
+        ]
+      }
+    ]
+  },
+  "gpu": {
+    "vendor": "Intel",
+    "device_id": "8086:5912",
+    "model": "Intel HD Graphics 630 (Kaby Lake)",
+    "driver": "i915",
+    "display_outputs": [
+      "DP-1",
+      "DP-2",
+      "DP-3",
+      "HDMI-A-1",
+      "HDMI-A-2"
+    ],
+    "nvidia_gpu": null,
+    "notes": "集成显卡，无独立 GPU"
+  },
+  "uptime": {
+    "days": 11,
+    "load_average": [
+      0.32,
+      0.38,
+      0.33
+    ]
+  }
+}

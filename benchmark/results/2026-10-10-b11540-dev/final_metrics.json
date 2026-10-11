@@ -1,0 +1,122 @@
+[
+  {
+    "task": "t1_html",
+    "calls": 1,
+    "largest_prompt": 43,
+    "fill_tok_s": 61.89,
+    "first_prompt_eval_s": 0.695,
+    "completion_tok": 4841,
+    "decode_tok_s": 45.01,
+    "accept_pct": 81.9,
+    "accepted": 3440,
+    "generated": 4200
+  },
+  {
+    "task": "t2_svg",
+    "calls": 1,
+    "largest_prompt": 32,
+    "fill_tok_s": 49.71,
+    "first_prompt_eval_s": 0.644,
+    "completion_tok": 8758,
+    "decode_tok_s": 47.16,
+    "accept_pct": 89.5,
+    "accepted": 6381,
+    "generated": 7128
+  },
+  {
+    "task": "t2_svg_r2",
+    "calls": 1,
+    "largest_prompt": 4,
+    "fill_tok_s": 20.54,
+    "first_prompt_eval_s": 0.195,
+    "completion_tok": 7388,
+    "decode_tok_s": 47.23,
+    "accept_pct": 88.6,
+    "accepted": 5367,
+    "generated": 6060
+  },
+  {
+    "task": "t2_svg_r3",
+    "calls": 1,
+    "largest_prompt": 4,
+    "fill_tok_s": 21.88,
+    "first_prompt_eval_s": 0.183,
+    "completion_tok": 9380,
+    "decode_tok_s": 46.8,
+    "accept_pct": 88.7,
+    "accepted": 6818,
+    "generated": 7683
+  },
+  {
+    "task": "a1_security",
+    "calls": 16,
+    "largest_prompt": 12699,
+    "fill_tok_s": 518.85,
+    "first_prompt_eval_s": 0.777,
+    "completion_tok": 3446,
+    "decode_tok_s": 23.42,
+    "accept_pct": 54.2,
+    "accepted": 2126,
+    "generated": 3921
+  },
+  {
+    "task": "a2_hostinfo",
+    "calls": 7,
+    "largest_prompt": 8898,
+    "fill_tok_s": 511.21,
+    "first_prompt_eval_s": 0.797,
+    "completion_tok": 1836,
+    "decode_tok_s": 41.27,
+    "accept_pct": 80.9,
+    "accepted": 1298,
+    "generated": 1605
+  },
+  {
+    "task": "a3_snowfall",
+    "calls": 341,
+    "largest_prompt": 57069,
+    "fill_tok_s": 346.24,
+    "first_prompt_eval_s": 0.73,
+    "completion_tok": 19844,
+    "decode_tok_s": 32.02,
+    "accept_pct": 90.7,
+    "accepted": 14265,
+    "generated": 15726
+  },
+  {
+    "task": "v1",
+    "calls": 1,
+    "largest_prompt": 3528,
+    "fill_tok_s": 49.05,
+    "first_prompt_eval_s": 71.933,
+    "completion_tok": 922,
+    "decode_tok_s": 35.21,
+    "accept_pct": 56.4,
+    "accepted": 579,
+    "generated": 1026
+  },
+  {
+    "task": "v2",
+    "calls": 1,
+    "largest_prompt": 1064,
+    "fill_tok_s": 79.41,
+    "first_prompt_eval_s": 13.398,
+    "completion_tok": 2200,
+    "decode_tok_s": 36.08,
+    "accept_pct": 58.0,
+    "accepted": 1397,
+    "generated": 2409
+  },
+  {
+    "task": "v3",
+    "calls": 1,
+    "largest_prompt": 4160,
+    "fill_tok_s": 45.14,
+    "first_prompt_eval_s": 92.16,
+    "completion_tok": 714,
+    "decode_tok_s": 33.32,
+    "accept_pct": 51.9,
+    "accepted": 434,
+    "generated": 837
+  }
+]
