@@ -14,7 +14,40 @@ text when the file is missing.
 Test the newly built llama.cpp **SYCL** B70 image described by the issue appended
 to this prompt.
 
-## 0. Load the procedure skills first
+## 0. Orientation - where things live
+
+The Session's working directory is the **workspace root**
+(`~/deepseek-workspace/llama.cpp`). It is **not** a git checkout and it has **no
+`docs/`** directory. It does carry a shared, hand-maintained `scripts/` used by every
+route. The checkouts are subdirectories:
+
+```
+<workspace root>/scripts/                  <- shared host wrappers (on-gpu.sh lives here)
+<workspace root>/llama.cpp-sycl-intel-b70/ <- THIS route's checkout (has docs/)
+<workspace root>/llama.cpp-vulkan/         <- the other route (has its OWN docs/)
+```
+
+So the two path styles are **both correct and deliberate**:
+
+- `scripts/on-gpu.sh` - relative to the workspace root, because that is where the
+  shared wrapper is.
+- `llama.cpp-sycl-intel-b70/docs/...` - the repo documents live under the checkout,
+  never at the root, because each route keeps its own golden config.
+
+Never write a bare `docs/...` path: it resolves against the root and fails.
+
+If a repo file does not resolve, the usual cause is that the checkout sits on a
+branch that does not carry it (`dev` does not carry `docs/GOLDEN-CONFIG.md`;
+`main` does). Read the authoritative branch directly rather than working around it:
+
+```bash
+git -C llama.cpp-sycl-intel-b70 show origin/main:docs/GOLDEN-CONFIG.md
+```
+
+The `b70-backend-test` skill carries the same golden values, so if both the file and
+the branch are unavailable, take them from the skill and **say so in the report**.
+
+## 0b. Load the procedure skills first
 
 Before anything else, call the `skill` tool for these, in order:
 
@@ -52,8 +85,9 @@ do not fabricate numbers.
 
 ## 2. Identify what you are testing
 
-- Read `docs/GOLDEN-CONFIG.md`. Every parameter comes from there; the only thing
-  the issue changes is the image tag.
+- Read `llama.cpp-sycl-intel-b70/docs/GOLDEN-CONFIG.md` (see §0 - the repo documents
+  are under the checkout, not at the workspace root). Every parameter comes from
+  there; the only thing the issue changes is the image tag.
 - Record the **digest** you actually pulled (`docker inspect` / the repo digest in
   the manifest), not just the tag. Tags move; a digest is the only durable record
   of what was tested.
