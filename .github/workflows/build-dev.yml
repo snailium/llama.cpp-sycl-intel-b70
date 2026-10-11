@@ -340,8 +340,18 @@ jobs:
           set -e
           IMAGE="ghcr.io/${{ github.repository }}/llama-sycl-b70:${{ steps.tag.outputs.image_tag }}"
           docker pull "$IMAGE" >/dev/null 2>&1 || true   # present locally from the build step already
+          # -f needs BOTH an escaped \$Version and an explicit \n:
+          #   * "${Version}" (unescaped) is expanded by THIS step's shell, where
+          #     Version is unset, so the container receives -f="" and dpkg-query
+          #     fails with "may not be empty string" -> the `|| echo unknown`
+          #     fallback fires and the issue has reported libze1 as `unknown`
+          #     since this step was written. The guard below reads the LOADER,
+          #     which is unaffected, so the real Level Zero check never broke.
+          #   * without \n the version is emitted with no trailing newline and
+          #     the loader line concatenates onto it ("1.32.0libze_loader..."),
+          #     leaving L0_LOADER empty and failing the case below.
           ACTUAL=$(docker run --rm --entrypoint /bin/bash "$IMAGE" -lc '
-            dpkg-query -W -f="${Version}" libze1 2>/dev/null || echo unknown
+            dpkg-query -W -f="\${Version}\n" libze1 2>/dev/null || echo unknown
             readlink -f /usr/lib/x86_64-linux-gnu/libze_loader.so.1 2>/dev/null | xargs -r basename
           ')
           L0_PKG=$(echo "$ACTUAL" | sed -n 1p)
@@ -355,6 +365,12 @@ jobs:
             *".so.${EXPECTED}") echo "OK: loader matches the pinned Level Zero ${EXPECTED}" ;;
             *) echo "ERROR: pinned Level Zero ${EXPECTED} is NOT in the image (found: ${L0_LOADER})" >&2; exit 1 ;;
           esac
+          # The loader check above is the real gate. This one exists so the
+          # package version cannot silently regress to `unknown` again and be
+          # copied into an issue as if it were a finding.
+          if [ "$L0_PKG" = "unknown" ] || [ -z "$L0_PKG" ]; then
+            echo "ERROR: could not read the libze1 package version from the image" >&2; exit 1
+          fi
 
       - name: Create detailed Issue (dev build)
         if: steps.decide.outputs.should_build == 'true'
