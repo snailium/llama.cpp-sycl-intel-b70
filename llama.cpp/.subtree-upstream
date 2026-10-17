@@ -8,11 +8,11 @@
 # The fields below record exactly where the current content came from, so a
 # build can be traced back to an upstream commit and a b tag (the stable
 # workflow tags images by v* version; the dev workflow needs the b tag).
-tag=b11540
-b_tag=b11540
-commit=1e6f04a75e91da4bb66b5248f3fd4bdeff169d41
-tag_object=1e6f04a75e91da4bb66b5248f3fd4bdeff169d41
+tag=b11706
+b_tag=b11706
+commit=f74e2fa6a31cc33ab4ee4ae516641cfe62df3924
+tag_object=f74e2fa6a31cc33ab4ee4ae516641cfe62df3924
 tag_type=commit
-version=0.6.0
-synced=2026-10-10
-subject=sycl : accelerate MXFP4 MoE with arithmetic decoding and weight reordering (#29809)
+version=0.7.0
+synced=2026-10-17
+subject=sycl: fix prompt-processing regression after Q4_0/Q8_0 weight reorder (#30374)
