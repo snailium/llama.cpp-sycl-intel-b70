@@ -271,6 +271,14 @@ in order, and **the usual trap fired every time** — identically:
    (the B70 and XTX workers), and a routed request with `X-SMG-Routing-Key` returned
    HTTP 200 with a real completion.
 
+**The running `b70-sycl` container was NOT rolled onto the promoted digest.** It serves
+`sha256:8bfbe375…` — a 2026-10-10 dev-channel rebuild of the **same llama.cpp v0.6.0**
+(`libllama.so.0.6.0` / `libggml-base.so.0.26.0`), created 2026-10-17 when the container was
+recreated against the then-`:latest`. This report covers the **image promotion**; rolling the
+running container onto `sha256:b265f403…` is a separate deployment step and was not part of
+this work. Worth stating plainly because the promote moves `:stable` and `:latest` — the
+running container is unaffected by a tag move until it is recreated.
+
 Final state: `b70-sycl` `restart=0 oom=false status=running (healthy)`, `xtx-vulkan`
 `restart=0 oom=false status=running (healthy)`, `smg healthy`. No production container was
 removed or rebuilt.
