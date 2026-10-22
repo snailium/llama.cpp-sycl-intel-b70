@@ -12,15 +12,15 @@
 
 | Item | Value |
 |---|---|
-| Image (pinned) | `ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:server-c26.35.39758.10-v0.6.0` |
+| Image (pinned) | `ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:server-c26.35.39758.10-v0.7.0` |
 | Image (floating) | `…:stable` |
 | Image (last known-good) | `…:latest` — see §1.1 |
-| Digest (all four tags) | `sha256:b5799bf3f66bc1fb5ed6e52534e8f6e9e84bab57105f83ae210fd168208d8b41` |
-| llama.cpp | v0.6.0 (in-image `libllama.so.0.6.0` / `libggml-base.so.0.26.0`) |
+| Digest (all four tags) | `sha256:b265f4034978affce09c482374ce09dc5bf97852a3cede3bdabcbb84d90c2377` |
+| llama.cpp | v0.7.0 (in-image `libllama.so.0.7.0` / `libggml-base.so.0.27.0`) |
 | Intel stack | compute-runtime `26.35.39758.10` (`libze_intel_gpu.so.1.17.39758`) / IGC `v2.41.5+1788943183` / Level Zero loader `1.32.0` |
 | oneDNN / XMX | `-DGGML_SYCL_DNN=ON`; `libdnnl.so.3` linked; runtime gate `GGML_SYCL_FA_ONEDNN` **defaults to 1** |
 | Entrypoint | `/app/llama-server` (image default — **never override it**) |
-| Rollback point | `sha256:b5799bf3f66bc1fb5ed6e52534e8f6e9e84bab57105f83ae210fd168208d8b41` (v0.6.0, current). Previous: `sha256:a7106ff20d67f1784bde2c5e2cdcf4fc0dc7fabb13161b62acef338313f85a79` (v0.5.0) |
+| Rollback point | `sha256:b265f4034978affce09c482374ce09dc5bf97852a3cede3bdabcbb84d90c2377` (v0.7.0, current). Previous: `sha256:b5799bf3f66bc1fb5ed6e52534e8f6e9e84bab57105f83ae210fd168208d8b41` (v0.6.0) |
 
 ### 1.1 Tag semantics
 
@@ -364,29 +364,45 @@ docker inspect <container> --format 'restart={{.RestartCount}} status={{.State.S
 
 Model load takes ~2 minutes (17.7 GB main + draft + mmproj) before `/v1/models` answers 200.
 
-## 6. Expected performance (v0.6.0 full suite, golden config)
+## 6. Expected performance (v0.7.0 full suite, golden config)
 
-Measured **2026-10-05** on a single Arc Pro B70 with the exact configuration above, on
-llama.cpp **v0.6.0** / compute-runtime `26.35.39758.10`. Full report:
-[`benchmark/results/2026-10-05-issue26-v060-stable/REPORT.md`](../benchmark/results/2026-10-05-issue26-v060-stable/REPORT.md).
+Measured **2026-10-16** on a single Arc Pro B70 with the exact configuration above, on
+llama.cpp **v0.7.0** / compute-runtime `26.35.39758.10`. Full report:
+[`benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md`](../benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md).
 
 Agent-task (A1-A3) rows aggregate the task's own calls; direct tasks (T1/T2/V1-V3) are one
 request each. Prefill for agent rows is the largest-prompt call, TTFT the first.
 
 | Task | fill (tok/s) | TTFT s | decode (tok/s) | draft acc |
 |---|---|---|---|---|
-| T1 (html) | 62.4 (43-tok prompt) | 0.69 | 42.18 | 0.737 |
-| T2 (svg) | 50.3 (32-tok prompt) | 0.64 | 45.74 | 0.857 |
+| T1 (html) | 45.33 (43-tok prompt) | 0.949 | 41.06 | 0.736 |
+| T2 (svg) | 46.03 (32-tok prompt) | 0.695 | 46.72 | 0.871 |
+| A1 (security review, agent) | 541.64 | 20.046 | 22.04 | 0.495 |
+| A2 (hostinfo, agent) | 606.85 | 14.819 | 41.72 | 0.807 |
+| A3 (snowfall, agent) | 598.49 | 20.857 | 37.31 | 0.796 |
+| V1 (game, vision) | 49.23 | 71.665 | 37.68 | 0.638 |
+| V2 (pcb, vision) | 78.72 | 13.517 | 35.13 | 0.552 |
+| V3 (tire, vision) | 45.45 | 91.520 | 34.99 | 0.567 |
+
+**Reading the T1/A1 prefill rows against the v0.6.0 table below:** T1's apparent −27 % is
+**fixed per-request cost on a 43-token prompt** (+260 ms once per request), not a throughput
+change — T2, with a *shorter* 32-token prompt, moves by the same absolute amount, and the
+long-prompt measure is unchanged (A2 at 8993 tokens is 606.85 tok/s, +1.9 %). Decode is within
+noise on every task, and draft acceptance is equal or better on 6 of 8.
+
+The **v0.6.0 baseline** (2026-10-05) remains useful as a long-range reference, as does the
+**v0.4.1 baseline** (compute-runtime `26.31.39395.13`, 2026-09-14):
+
+| Task | v0.6.0 fill | v0.6.0 TTFT | v0.6.0 decode | v0.6.0 acc |
+|---|---|---|---|---|
+| T1 (html) | 62.4 | 0.69 | 42.18 | 0.737 |
+| T2 (svg) | 50.3 | 0.64 | 45.74 | 0.857 |
 | A1 (security review, agent) | 580.4 | 1.06 | 22.91 | 0.528 |
 | A2 (hostinfo, agent) | 595.3 | 0.75 | 40.58 | 0.765 |
 | A3 (snowfall, agent) | 527.5 | 0.74 | 32.22 | 0.740 |
 | V1 (game, vision) | 48.1 | 73.35 | 34.55 | 0.560 |
 | V2 (pcb, vision) | 78.7 | 13.52 | 36.10 | 0.588 |
 | V3 (tire, vision) | 45.0 | 92.42 | 32.70 | 0.509 |
-
-The **v0.4.1 baseline** (compute-runtime `26.31.39395.13`, 2026-09-14) remains useful as a
-long-range reference — the earlier "unchanged within noise" runs on `26.35.39758.10` (issues
-#18, #19) are superseded by the table above:
 
 | Task | fill (tok/s) | TTFT med/mean | decode (tok/s) | draft acc |
 |---|---|---|---|---|
@@ -457,3 +473,7 @@ Reading the numbers:
 | 2026-09-24 | Added `:latest` = last tested+promoted image (monotonic by image build date) to both promote workflows and `promote-b70-image.sh`; added the dev/stable `channel` argument to the script; §1.1 documents the tag semantics. Bootstrapped `:latest` to the v0.5.0 stable digest `sha256:a7106ff2…`, which was the newest build at the time. |
 | 2026-10-05 | **PROMOTED issue #26 candidate to `:stable`** — `sha256:b5799bf3…` (llama.cpp **v0.6.0**), replaced `sha256:a7106ff2…` (v0.5.0). Intel stack byte-identical to the outgoing stable, so this is a **llama.cpp-only change** (`0.5.0-dev` → `v0.6.0`; in-image `libllama.so.0.6.0` / `libggml-base.so.0.26.0`). Full suite 8/8, zero crash/OOM/device-loss signatures over 771,297 log lines, unsplit `17402.38 MiB` main buffer, `RestartCount=0`, no leak onto the XTX. `:latest` advanced `2026-10-03` → `2026-10-05`. Report: [`benchmark/results/2026-10-05-issue26-v060-stable/REPORT.md`](../benchmark/results/2026-10-05-issue26-v060-stable/REPORT.md). Two model-quality defects recorded as findings, not blockers: V3 misread the tyre load index (`113S` vs truth `118S`), and A3 returned a snowfall total with a 10× unit error (`214.0 mm` where the ECCC `TOTAL_SNOW` field is in cm) — the **second** occurrence of that class on A3, so the task definition is the thing to fix. |
 | 2026-10-05 | **Found and fixed deployment drift: the deployed Portainer stack still set `LLAMA_ARG_SPEC_DRAFT_TYPE_K/_V`** on both the B70 and the XTX service, 12 days after the 2026-09-23 §3 correction landed in this repo. Unknown `LLAMA_ARG_*` names are **silently ignored**, so both production containers had been running the draft KV at its **f16 default** while the config claimed q8_0 / q4_0. Confirmed against the image: `grep -aoE 'LLAMA_ARG_SPEC[A-Z_]*' /app/libllama-common.so.0.6.0` exposes `…_CACHE_TYPE_K/_V` and **no** `…_TYPE_K/_V`. Fixed on the **B70 service only** (XTX is a separate repo/channel and is tracked separately — it still carries the wrong name); the B70 now matches what the suite actually measured (`spec common_specu: - gpu_layers=-1, cache_k=q8_0, cache_v=q8_0`). **No past measurement was invalidated** — every recorded run passed the draft KV via the *flag* form or the correct env name. Lesson recorded in §3: a repo fix is not a deployment fix; re-apply the stack after editing this file. |
+| 2026-10-16 | **Issue #30 candidate (llama.cpp v0.7.0) tested — NOT promoted.** `sha256:b265f403…`, subtree advanced `v0.6.0 → v0.7.0` (3986 files, `ggml/src/ggml-sycl/` +2717/−418), Intel stack byte-identical to the outgoing stable. Full battery run: **6 PASS, 1 TIMEOUT, 2 FAIL** — T1/T2/A1/A2/V1 pass; **A3 TIMEOUT** (1 h cap, 586 clean requests, no final answer); **V2 FAIL** (16/21 labels, fabricated `Q05–Q16`/`U53A/B`/`X2`/`SATA1–6`); **V3 FAIL** (`113S` vs truth `118S` — third occurrence of this defect class). **Backend itself showed no regression**: `RestartCount=0`, `OOMKilled=false`, zero crash/OOM/device-loss signatures across 4,351,498 log lines, `SYCL0 model buffer size = 17402.38 MiB` **unsplit** (memory-splitting trap did not fire), long-prompt prefill unchanged (A2 606.85 tok/s at 8993 tok, +1.9 %), decode within noise, acceptance equal or better on 6/8 tasks. T1's apparent −27 % prefill is fixed per-request cost on a 43-token prompt (+260 ms once), not a throughput change. `b70-sycl` was stopped with consent and restored; **SMG again did not self-heal** (worker `/health` ok while `/workers` reported `failed`) and needed `docker restart smg`. Report: [`benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md`](../benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md). |
+| 2026-10-20 | **A3 re-run for issue #30 — PASSES on the same image.** The first run's 1 h A3 timeout was traced to a **harness** problem, not the backend: the agent looped 125x on one `bash` command and 130x on one `web_fetch_file` URL without tripping `dsh-repeat-tool-breaker` 0.11.4, because the shipped gate needs **12** identical fingerprints inside a **16**-call window while the observed peak was **9** (`onLimit: ask` also cannot work unattended -- a headless approval returns `unavailable`, which the plugin treats fail-closed). Re-running with the breaker's `exact/cmd/net/sink: 5`, `host: 6`, `onLimit: deny` in the **test home only** (validated against the plugin's own code first) cut the loop: max repeats of one call fell 130 -> 5, tool calls 586 -> 81, and A3 **completed in ~35 min with a sourced answer of 258.6 cm** for 2025-11-01..2026-12-31, **independently recomputed from the agent's own downloaded CSV** (353 days, 75 snow days, max 21.0 cm on 2026-01-15, all monthly values reproduced). Same image digest, same golden config, same prompt. Issue #30 now stands at **6 PASS / 2 FAIL** (V2, V3 -- both vision model-quality defects, both carried over from the v0.6.0 baseline), so the image is still **not promoted**. Analysis: `evidence/a3-loop-analysis.md` in the same report directory. |
+| 2026-10-21 | **A3 re-run on the LATEST dsh-container — the loop is still not fixed upstream.** New harness `sha256:ae65d5e03225…` (dsh 0.2.1-rc.2) ships `dsh-repeat-tool-breaker` **0.11.6**, whose **limits are byte-identical to 0.11.4** (`window 16`, `exact/cmd/net/sink 12`, `host 16`, `onLimit ask`); only sink attribution changed. Replaying the issue-30 timed-out session through 0.11.6's own `fingerprints()` and window accounting still peaks at **9** (limit 12) — the gate **never fires**, so the tightened test-home config is still required. With it, A3 completed in ~11 min (88 tool calls, max repeats 2, 5 blocks fired) but **produced no total**: the agent correctly found that the ECCC `climate-daily` collection returns genuinely empty `TOTAL_SNOW` for `STN_ID=4337`, then reached `ottawa.weatherstats.ca` but probed only `/metrics/snow.html` and `/data/snow-daily.json` and never tried the endpoint that carries the data (`download.html?formdata=ok&type=daily&limit=50000` — re-fetched afterwards: HTTP 200, same 258.6 cm). **A3 is therefore not a binary pass/fail on the image** — its outcome is decided by which endpoints the agent probes. dsh 0.2.1-rc.2 also **stopped materializing the `llm-pi-ai` provider row** in the generated profile patch, so the route must be declared explicitly in the test home or the boot fails with `NO_ADAPTER`. Analysis: `evidence/a3-latest-harness-analysis.md`. Issue #30 remains **not promoted** (V2, V3 — vision model-quality defects carried over from the v0.6.0 baseline). |
+| 2026-10-21 | **PROMOTED issue #30 candidate to `:stable`** — `sha256:b265f403…` (llama.cpp **v0.7.0**), replacing `sha256:b5799bf3…` (v0.6.0). Intel stack byte-identical to the outgoing stable, so this is a **llama.cpp-only change** (`v0.6.0` → `v0.7.0`; in-image `libllama.so.0.7.0` / `libggml-base.so.0.27.0`); subtree advanced 3986 files (+97012/−35390), of which `ggml/src/ggml-sycl/` is 28 files, +2717/−418 (`fused-gemm.cpp/hpp` new, `mmvq.cpp`/`vecdotq.cpp` reworked, `fattn.cpp` MKL-FA gate extended to a GLM-4.7 MLA shape). Promote moves `:stable`, the new clean release tag `:server-c26.35.39758.10-v0.7.0`, and `:latest` (advanced 2026-10-10 → 2026-10-16, monotonic by build date); `:server-dev` untouched; the v0.6.0 rollback tag still resolves to `sha256:b5799bf3…`. **Test outcome: 6 PASS / 2 FAIL** — T1/T2/A1/A2/A3/V1 pass; **V2 FAIL** (16/21 labels, fabricated `Q05–Q16`/`U53A/B`/`X2`/`SATA1–6`) and **V3 FAIL** (`113S` vs truth `118S`, third occurrence of that defect class). **Both failures are vision model-quality defects, both reproduced on the v0.6.0 baseline, and neither is a property of this image** — the backend handled both images identically, returning clean 200s with correct timings. The maintainer reviewed the report and **promoted on the strength of the backend-stability evidence, with V2/V3 accepted as known task-side defects**; the V-block is a known-broken gate, not a regression. Stability: zero crash/OOM/device-loss signatures across 4,351,498 + 301,850 + 392,003 log lines, `RestartCount=0`, `OOMKilled=false`, `SYCL0 model buffer size = 17402.38 MiB` **unsplit** (memory-splitting trap did not fire), KV `4352.00 MiB`, long-prompt prefill unchanged (A2 606.85 tok/s at 8993 tok, +1.9 %), decode within noise, draft acceptance equal or better on 6/8, no leak onto the XTX. **A3 caveat for the next run:** A3 ran three times on this same digest with three outcomes (1 h timeout → 258.6 cm → no total); the timeout was a **harness** gap (`dsh-repeat-tool-breaker` 0.11.4/0.11.6 both ship a limit of 12 against an observed 16-call-window peak of 9, so the gate never fired) and the remaining variability is which endpoints the agent probes — pinning the data source (`ottawa.weatherstats.ca/download.html?formdata=ok&type=daily&limit=50000`) in the task definition makes it deterministic. Neither affects the image. `b70-sycl` was stopped with consent and restored; **SMG did not self-heal again** (worker `/health` ok while `/workers` reported `failed`) and needed `docker restart smg`. Report: [`benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md`](../benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md). |

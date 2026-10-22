@@ -1,0 +1,295 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800">
+  <defs>
+    <!-- 背景渐变 - 深空 -->
+    <radialGradient id="spaceBg" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#0a0e2a"/>
+      <stop offset="50%" stop-color="#0d1133"/>
+      <stop offset="100%" stop-color="#020410"/>
+    </radialGradient>
+    
+    <!-- 大爆炸核心光晕 -->
+    <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="15%" stop-color="#fff8e1"/>
+      <stop offset="30%" stop-color="#ffcc02"/>
+      <stop offset="50%" stop-color="#ff6f00"/>
+      <stop offset="70%" stop-color="#d84315"/>
+      <stop offset="100%" stop-color="#b71c1c" stop-opacity="0"/>
+    </radialGradient>
+    
+    <!-- 辐射波圈渐变 -->
+    <radialGradient id="waveRing1" cx="50%" cy="50%" r="50%">
+      <stop offset="80%" stop-color="#ff6f00" stop-opacity="0"/>
+      <stop offset="90%" stop-color="#ffab40" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#ff6f00" stop-opacity="0"/>
+    </radialGradient>
+    
+    <!-- 星系颜色 -->
+    <radialGradient id="galaxyGrad1" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#a8c8ff"/>
+      <stop offset="100%" stop-color="#2c3e70" stop-opacity="0.3"/>
+    </radialGradient>
+    
+    <radialGradient id="galaxyGrad2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fffde7"/>
+      <stop offset="40%" stop-color="#ffe082"/>
+      <stop offset="100%" stop-color="#6d4c41" stop-opacity="0.3"/>
+    </radialGradient>
+    
+    <radialGradient id="galaxyGrad3" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e8f5e9"/>
+      <stop offset="40%" stop-color="#81c784"/>
+      <stop offset="100%" stop-color="#1b5e20" stop-opacity="0.3"/>
+    </radialGradient>
+    
+    <!-- 时间轴箭头 -->
+    <marker id="arrowHead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64b5f6"/>
+    </marker>
+    
+    <!-- 粒子光点 -->
+    <filter id="particleGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- 标题文字阴影 -->
+    <filter id="textShadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.7"/>
+    </filter>
+    
+    <!-- 面板背景 -->
+    <linearGradient id="panelBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1a237e" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#0d1b4f" stop-opacity="0.9"/>
+    </linearGradient>
+    
+    <!-- 阶段图标渐变 -->
+    <radialGradient id="stage1Grad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="60%" stop-color="#ffeb3b"/>
+      <stop offset="100%" stop-color="#f44336"/>
+    </radialGradient>
+    
+    <radialGradient id="stage2Grad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff9c4"/>
+      <stop offset="60%" stop-color="#ff9800"/>
+      <stop offset="100%" stop-color="#d32f2f"/>
+    </radialGradient>
+    
+    <radialGradient id="stage3Grad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e3f2fd"/>
+      <stop offset="60%" stop-color="#42a5f5"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </radialGradient>
+    
+    <radialGradient id="stage4Grad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e8f5e9"/>
+      <stop offset="60%" stop-color="#66bb6a"/>
+      <stop offset="100%" stop-color="#2e7d32"/>
+    </radialGradient>
+    
+    <!-- 星尘散布 -->
+    <pattern id="stardust" x="0" y="0" width="100" height="100" patternUnits="userSpaceOnUse">
+      <circle cx="10" cy="20" r="0.8" fill="#ffffff" opacity="0.4"/>
+      <circle cx="35" cy="10" r="0.6" fill="#ffffff" opacity="0.3"/>
+      <circle cx="60" cy="35" r="0.7" fill="#ffffff" opacity="0.5"/>
+      <circle cx="80" cy="15" r="0.5" fill="#ffffff" opacity="0.35"/>
+      <circle cx="25" cy="55" r="0.9" fill="#ffffff" opacity="0.45"/>
+      <circle cx="70" cy="60" r="0.6" fill="#ffffff" opacity="0.3"/>
+      <circle cx="45" cy="80" r="0.8" fill="#ffffff" opacity="0.4"/>
+      <circle cx="90" cy="75" r="0.5" fill="#ffffff" opacity="0.35"/>
+      <circle cx="15" cy="90" r="0.7" fill="#ffffff" opacity="0.5"/>
+      <circle cx="55" cy="45" r="0.4" fill="#ffffff" opacity="0.25"/>
+    </pattern>
+  </defs>
+  
+  <!-- 背景 -->
+  <rect width="1200" height="800" fill="url(#spaceBg)"/>
+  <rect width="1200" height="800" fill="url(#stardust)" opacity="0.6"/>
+  
+  <!-- 随机星星 -->
+  <g>
+    <circle cx="50" cy="80" r="1.2" fill="#ffffff" opacity="0.7"/>
+    <circle cx="150" cy="45" r="0.9" fill="#ffffff" opacity="0.5"/>
+    <circle cx="280" cy="120" r="1.1" fill="#ffffff" opacity="0.6"/>
+    <circle cx="400" cy="60" r="0.8" fill="#ffffff" opacity="0.4"/>
+    <circle cx="520" cy="90" r="1.3" fill="#ffffff" opacity="0.7"/>
+    <circle cx="650" cy="40" r="1.0" fill="#ffffff" opacity="0.5"/>
+    <circle cx="780" cy="110" r="0.9" fill="#ffffff" opacity="0.6"/>
+    <circle cx="900" cy="70" r="1.2" fill="#ffffff" opacity="0.7"/>
+    <circle cx="1050" cy="55" r="0.8" fill="#ffffff" opacity="0.4"/>
+    <circle cx="1150" cy="95" r="1.1" fill="#ffffff" opacity="0.6"/>
+    <circle cx="80" cy="720" r="1.0" fill="#ffffff" opacity="0.5"/>
+    <circle cx="200" cy="750" r="0.9" fill="#ffffff" opacity="0.4"/>
+    <circle cx="350" cy="730" r="1.2" fill="#ffffff" opacity="0.6"/>
+    <circle cx="500" cy="760" r="0.8" fill="#ffffff" opacity="0.5"/>
+    <circle cx="680" cy="740" r="1.1" fill="#ffffff" opacity="0.7"/>
+    <circle cx="820" cy="755" r="0.9" fill="#ffffff" opacity="0.4"/>
+    <circle cx="950" cy="725" r="1.3" fill="#ffffff" opacity="0.6"/>
+    <circle cx="1100" cy="745" r="1.0" fill="#ffffff" opacity="0.5"/>
+  </g>
+  
+  <!-- ===== 标题区域 ===== -->
+  <text x="600" y="55" text-anchor="middle" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="36" font-weight="bold" fill="#ffffff" filter="url(#textShadow)">宇宙大爆炸理论</text>
+  <text x="600" y="85" text-anchor="middle" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="16" fill="#90caf9">The Big Bang Theory — 从奇点到浩瀚宇宙</text>
+  
+  <!-- ===== 左侧：大爆炸核心示意图 ===== -->
+  <g transform="translate(320, 400)">
+    <!-- 辐射波圈（由内向外） -->
+    <circle cx="0" cy="0" r="180" fill="none" stroke="#ff6f00" stroke-width="1.5" opacity="0.15"/>
+    <circle cx="0" cy="0" r="140" fill="none" stroke="#ffab40" stroke-width="2" opacity="0.25"/>
+    <circle cx="0" cy="0" r="100" fill="none" stroke="#ffc107" stroke-width="2.5" opacity="0.35"/>
+    <circle cx="0" cy="0" r="60" fill="none" stroke="#ffd54f" stroke-width="3" opacity="0.5"/>
+    
+    <!-- 核心光晕 -->
+    <circle cx="0" cy="0" r="45" fill="url(#coreGlow)"/>
+    
+    <!-- 向外辐射的粒子线 -->
+    <g stroke="#ffab40" stroke-width="1.5" opacity="0.6">
+      <line x1="0" y1="0" x2="130" y2="0"/>
+      <line x1="0" y1="0" x2="-130" y2="0"/>
+      <line x1="0" y1="0" x2="0" y2="130"/>
+      <line x1="0" y1="0" x2="0" y2="-130"/>
+      <line x1="0" y1="0" x2="92" y2="92"/>
+      <line x1="0" y1="0" x2="-92" y2="92"/>
+      <line x1="0" y1="0" x2="92" y2="-92"/>
+      <line x1="0" y1="0" x2="-92" y2="-92"/>
+    </g>
+    
+    <!-- 飞散的粒子 -->
+    <g filter="url(#particleGlow)">
+      <circle cx="150" cy="0" r="3" fill="#ffd54f"/>
+      <circle cx="-150" cy="0" r="3" fill="#ffd54f"/>
+      <circle cx="0" cy="150" r="3" fill="#ffab40"/>
+      <circle cx="0" cy="-150" r="3" fill="#ffab40"/>
+      <circle cx="106" cy="106" r="2.5" fill="#ffe082"/>
+      <circle cx="-106" cy="106" r="2.5" fill="#ffe082"/>
+      <circle cx="106" cy="-106" r="2.5" fill="#ffcc80"/>
+      <circle cx="-106" cy="-106" r="2.5" fill="#ffcc80"/>
+      <!-- 更多散布粒子 -->
+      <circle cx="70" cy="40" r="2" fill="#fff9c4"/>
+      <circle cx="-50" cy="80" r="1.8" fill="#fff59d"/>
+      <circle cx="60" cy="-70" r="2" fill="#ffe082"/>
+      <circle cx="-80" cy="-40" r="1.5" fill="#fffde7"/>
+      <circle cx="30" cy="110" r="1.8" fill="#ffecb3"/>
+      <circle cx="-110" cy="20" r="1.5" fill="#fff8e1"/>
+    </g>
+    
+    <!-- 中心奇点标记 -->
+    <circle cx="0" cy="0" r="4" fill="#ffffff"/>
+    <text x="0" y="-55" text-anchor="middle" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="13" fill="#ffecb3">奇点</text>
+    
+    <!-- 标签：向外膨胀 -->
+    <text x="165" y="-5" text-anchor="start" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" fill="#90caf9">空间膨胀</text>
+    <line x1="155" y1="0" x2="160" y2="-3" stroke="#90caf9" stroke-width="1"/>
+  </g>
+  
+  <!-- ===== 右侧：四个发展阶段 ===== -->
+  <g transform="translate(700, 140)">
+    <!-- 阶段标题 -->
+    <text x="250" y="0" text-anchor="middle" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="20" font-weight="bold" fill="#ffffff">宇宙演化的四个阶段</text>
+    
+    <!-- 阶段1：普朗克时期 -->
+    <g transform="translate(0, 30)">
+      <rect x="0" y="0" width="500" height="85" rx="10" ry="10" fill="url(#panelBg)" stroke="#ff6f00" stroke-width="1.5"/>
+      <!-- 阶段图标 -->
+      <circle cx="45" cy="42" r="25" fill="url(#stage1Grad)"/>
+      <text x="45" y="48" text-anchor="middle" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" fill="#000000">①</text>
+      <!-- 文字 -->
+      <text x="90" y="32" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="16" font-weight="bold" fill="#ffcc80">普朗克时期（t &lt; 10⁻⁴³秒）</text>
+      <text x="90" y="55" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="13" fill="#b0bec5">宇宙处于极高温、极高密度的奇点状态，</text>
+      <text x="90" y="73" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="13" fill="#b0bec5">已知物理定律在此尺度下不再适用。</text>
+    </g>
+    
+    <!-- 阶段2：暴胀时期 -->
+    <g transform="translate(0, 130)">
+      <rect x="0" y="0" width="500" height="85" rx="10" ry="10" fill="url(#panelBg)" stroke="#ff9800" stroke-width="1.5"/>
+      <circle cx="45" cy="42" r="25" fill="url(#stage2Grad)"/>
+      <text x="45" y="48" text-anchor="middle" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" fill="#000000">②</text>
+      <text x="90" y="32" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="16" font-weight="bold" fill="#ffab40">暴胀时期（t ≈ 10⁻³⁶ ~ 10⁻³²秒）</text>
+      <text x="90" y="55" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="13" fill="#b0bec5">宇宙经历指数级膨胀，空间在极短时间内</text>
+      <text x="90" y="73" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="13" fill="#b0bec5">扩大约10²⁶倍，为后续结构形成奠定基础。</text>
+    </g>
+    
+    <!-- 阶段3：核合成与冷却 -->
+    <g transform="translate(0, 230)">
+      <rect x="0" y="0" width="500" height="85" rx="10" ry="10" fill="url(#panelBg)" stroke="#42a5f5" stroke-width="1.5"/>
+      <circle cx="45" cy="42" r="25" fill="url(#stage3Grad)"/>
+      <text x="45" y="48" text-anchor="middle" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" fill="#000000">③</text>
+      <text x="90" y="32" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="16" font-weight="bold" fill="#90caf9">核合成与冷却（t ≈ 3分钟 ~ 38万年）</text>
+      <text x="90" y="55" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="13" fill="#b0bec5">质子和中子结合形成轻元素核（氢、氦），</text>
+      <text x="90" y="73" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="13" fill="#b0bec5">宇宙冷却至约3000K，电子与原子核结合发光。</text>
+    </g>
+    
+    <!-- 阶段4：星系形成 -->
+    <g transform="translate(0, 330)">
+      <rect x="0" y="0" width="500" height="85" rx="10" ry="10" fill="url(#panelBg)" stroke="#66bb6a" stroke-width="1.5"/>
+      <circle cx="45" cy="42" r="25" fill="url(#stage4Grad)"/>
+      <text x="45" y="48" text-anchor="middle" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" fill="#000000">④</text>
+      <text x="90" y="32" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="16" font-weight="bold" fill="#a5d6a7">星系形成与演化（t ≈ 数亿年至今）</text>
+      <text x="90" y="55" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="13" fill="#b0bec5">引力使物质聚集形成恒星、星系和星系团，</text>
+      <text x="90" y="73" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="13" fill="#b0bec5">宇宙持续膨胀，暗能量主导加速膨胀至今。</text>
+    </g>
+    
+    <!-- 连接箭头 -->
+    <line x1="250" y1="85" x2="250" y2="130" stroke="#64b5f6" stroke-width="2" marker-end="url(#arrowHead)"/>
+    <line x1="250" y1="185" x2="250" y2="230" stroke="#64b5f6" stroke-width="2" marker-end="url(#arrowHead)"/>
+    <line x1="250" y1="285" x2="250" y2="330" stroke="#64b5f6" stroke-width="2" marker-end="url(#arrowHead)"/>
+  </g>
+  
+  <!-- ===== 底部：关键证据与概念 ===== -->
+  <g transform="translate(50, 680)">
+    <!-- 分隔线 -->
+    <line x1="0" y1="-15" x2="1100" y2="-15" stroke="#3949ab" stroke-width="1" opacity="0.5"/>
+    
+    <!-- 标题 -->
+    <text x="550" y="5" text-anchor="middle" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="18" font-weight="bold" fill="#ffffff">关键观测证据</text>
+    
+    <!-- 证据1：宇宙微波背景辐射 -->
+    <g transform="translate(30, 25)">
+      <rect x="0" y="0" width="320" height="70" rx="8" ry="8" fill="#1a237e" opacity="0.6" stroke="#42a5f5" stroke-width="1"/>
+      <!-- 小图标：波纹 -->
+      <g transform="translate(35, 35)">
+        <circle cx="0" cy="0" r="8" fill="none" stroke="#90caf9" stroke-width="1.5"/>
+        <circle cx="0" cy="0" r="14" fill="none" stroke="#64b5f6" stroke-width="1" opacity="0.7"/>
+        <circle cx="0" cy="0" r="20" fill="none" stroke="#42a5f5" stroke-width="0.8" opacity="0.5"/>
+      </g>
+      <text x="70" y="28" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" fill="#90caf9">宇宙微波背景辐射（CMB）</text>
+      <text x="70" y="50" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" fill="#b0bec5">大爆炸的"余晖"，温度约2.7K，各向同性</text>
+    </g>
+    
+    <!-- 证据2：哈勃定律 -->
+    <g transform="translate(400, 25)">
+      <rect x="0" y="0" width="320" height="70" rx="8" ry="8" fill="#1a237e" opacity="0.6" stroke="#ff9800" stroke-width="1"/>
+      <!-- 小图标：星系远离 -->
+      <g transform="translate(35, 35)">
+        <circle cx="-15" cy="0" r="4" fill="#ffcc80"/>
+        <line x1="-10" y1="0" x2="15" y2="0" stroke="#ffab40" stroke-width="1.5" marker-end="url(#arrowHead)"/>
+        <circle cx="20" cy="0" r="3" fill="#ffe082"/>
+      </g>
+      <text x="70" y="28" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" fill="#ffcc80">哈勃定律（红移）</text>
+      <text x="70" y="50" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" fill="#b0bec5">遥远星系的光谱向红端移动，证明宇宙膨胀</text>
+    </g>
+    
+    <!-- 证据3：轻元素丰度 -->
+    <g transform="translate(770, 25)">
+      <rect x="0" y="0" width="320" height="70" rx="8" ry="8" fill="#1a237e" opacity="0.6" stroke="#66bb6a" stroke-width="1"/>
+      <!-- 小图标：原子 -->
+      <g transform="translate(35, 35)">
+        <circle cx="0" cy="0" r="3" fill="#a5d6a7"/>
+        <ellipse cx="0" cy="0" rx="12" ry="5" fill="none" stroke="#81c784" stroke-width="1"/>
+        <ellipse cx="0" cy="0" rx="12" ry="5" fill="none" stroke="#66bb6a" stroke-width="1" transform="rotate(60)"/>
+      </g>
+      <text x="70" y="28" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" fill="#a5d6a7">轻元素丰度</text>
+      <text x="70" y="50" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" fill="#b0bec5">氢、氦比例与理论预测高度吻合（H:He≈3:1）</text>
+    </g>
+  </g>
+  
+  <!-- ===== 底部注释 ===== -->
+  <text x="600" y="790" text-anchor="middle" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="11" fill="#546e7a">注：大爆炸并非发生在空间中的某一点，而是整个空间本身的膨胀。宇宙仍在持续膨胀中。</text>
+</svg>

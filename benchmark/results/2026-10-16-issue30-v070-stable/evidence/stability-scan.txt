@@ -1,0 +1,18 @@
+=== Stability scan: 4351498 lines ===
+SIGSEGV                            0
+UR_RESULT_ERROR                    0
+device lost                        0
+Device lost                        0
+Failed to allocate physical memory 0
+ggml_sycl_pool_vmm                 0
+GGML_ASSERT                        0
+stack smashing                     0
+declared device                    0
+as wedged                          0
+GPU hang                           0
+Out of memory                      0
+bad_alloc                          0
+terminate called                   0
+
+=== draft acceptance records (proof -v worked) ===
+611

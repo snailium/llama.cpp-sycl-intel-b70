@@ -1,0 +1,28 @@
+Warning: Permanently added '192.0.2.101' (ED25519) to the list of known hosts.
+=== candidate image version read-back ===
+digest: ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70@sha256:b265f4034978affce09c482374ce09dc5bf97852a3cede3bdabcbb84d90c2377
+created: 2026-10-16T04:06:41.750593721Z
+entrypoint: ["/bin/sh","-c","exec /app/llama-server $DEBUG_FLAG \"$@\"","--"]
+lrwxrwxrwx 1 root root 22 Oct 16 04:06 /app/libggml-base.so.0 -> libggml-base.so.0.27.0
+lrwxrwxrwx 1 root root 17 Oct 16 04:06 /app/libllama.so.0 -> libllama.so.0.7.0
+ii  intel-igc-core-2                                      2.41.5                           amd64        Intel(R) Graphics Compiler for OpenCL(TM)
+ii  libze1                                                1.32.0                           amd64        oneAPI Level Zero
+lrwxrwxrwx 1 root root 29 Sep 14 09:35 /usr/lib/x86_64-linux-gnu/libze_intel_gpu.so.1 -> libze_intel_gpu.so.1.17.39758
+	libdnnl.so.3 => /opt/intel/oneapi/dnnl/2026.0/lib/libdnnl.so.3 (0x0000793c14f56000)
+g_ggml_sycl_fa_onednn
+LLAMA_ARG_SPEC_DRAFT_BACKEND_SAMPLING
+LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K
+LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_V
+LLAMA_ARG_SPEC_DRAFT_CPU_MOE
+LLAMA_ARG_SPEC_DRAFT_HF_REPO
+LLAMA_ARG_SPEC_DRAFT_MODEL
+LLAMA_ARG_SPEC_DRAFT_N_CPU_MOE
+LLAMA_ARG_SPEC_DRAFT_N_MAX
+LLAMA_ARG_SPEC_DRAFT_N_MIN
+LLAMA_ARG_SPEC_DRAFT_N_UBATCH
+LLAMA_ARG_SPEC_DRAFT_P_MIN
+LLAMA_ARG_SPEC_DRAFT_P_SPLIT
+LLAMA_ARG_SPEC_DRAFT_SAMPLING
+LLAMA_ARG_SPEC_SYNTH_LEN
+LLAMA_ARG_SPEC_SYNTH_RATES
+LLAMA_ARG_SPEC_TYPE
