@@ -89,7 +89,7 @@ services:
       # --- model ------------------------------------------------------------
       - LLAMA_ARG_MODEL=/models/Qwen3.8-27B-Q4_K_M.gguf
       - LLAMA_ARG_MMPROJ=/models/mmproj-Qwen3.8-27B-Q8_0.gguf
-      - LLAMA_ARG_MMPROJ_OFFLOAD=false        # == --no-mmproj-offload
+      - LLAMA_ARG_MMPROJ_OFFLOAD=true         # == --mmproj-offload (GPU); B70 has VRAM headroom
       - LLAMA_ARG_IMAGE_MIN_TOKENS=1024
       - LLAMA_ARG_N_GPU_LAYERS=999
 

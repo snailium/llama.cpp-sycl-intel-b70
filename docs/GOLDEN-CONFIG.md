@@ -197,7 +197,7 @@ maps every server argument to one. `docker-compose.yml` and
 ```bash
 LLAMA_ARG_MODEL=/models/Qwen3.8-27B-Q4_K_M.gguf
 LLAMA_ARG_MMPROJ=/models/mmproj-Qwen3.8-27B-Q8_0.gguf
-LLAMA_ARG_MMPROJ_OFFLOAD=false          # == --no-mmproj-offload
+LLAMA_ARG_MMPROJ_OFFLOAD=true           # == --mmproj-offload (GPU); B70 has VRAM headroom
 LLAMA_ARG_IMAGE_MIN_TOKENS=1024
 LLAMA_ARG_N_GPU_LAYERS=999
 LLAMA_ARG_CTX_SIZE=131072
@@ -326,7 +326,13 @@ Rationale, group by group:
 - **Speculative decoding** — MTP head as a **separate Q8_0 draft model**, `--spec-draft-n-max 3`.
   MTP3 beats MTP4 on agent workloads (position-4 acceptance collapses); the draft uses q8_0 KV for
   the same VRAM reason as the main model.
-- **Vision** — mmproj stays on the **CPU** (`--no-mmproj-offload`) with `--image-min-tokens 1024`.
+- **Vision** — mmproj is **offloaded to the GPU** (`--mmproj-offload`, the llama.cpp default) with
+  `--image-min-tokens 1024`. The B70 has the VRAM headroom (~25.3 GB of 32 GB in use at 128k, projector included),
+  and the projector on the GPU keeps image encoding off the host CPU. **The XTX has run the
+  projector on the GPU since 2026-10-06** (issue #10: image prefill 53.8 → 480.3 t/s, 8.9×;
+  TTFT 65.6 → 7.35 s) — it simply *omits* the variable, because the llama.cpp default is
+  enabled. The B70 had been left on the CPU despite that measurement; both cards are now
+  consistent. Do not set `=false` on either card.
 - **Thinking** — `--reasoning off` (response-parsing layer) **and** a template-level
   `enable_thinking:false` default. Both are needed: the first controls where thoughts are placed,
   the second stops Qwen from generating them at all.
@@ -423,9 +429,38 @@ Reading the numbers:
 - **Decode** is memory-bound: 40–46 tok/s on short contexts, ~21 tok/s at the deep end of a long
   agent task. This is the structural ceiling for a single stream on this part (upstream #26581) —
   aggregate throughput via concurrency is where the headroom is.
-- **Vision** prefill is slow (mmproj on CPU + image encoding): 18–141 s TTFT, but decode after the
-  image is normal (34–40 tok/s) and speculation keeps working.
+- **Vision** with the projector on the **GPU** (`--mmproj-offload`, this golden): TTFT **2.9–15.6 s**,
+  prefill 256–367 tok/s, decode after the image normal (36–38 tok/s), speculation working. This
+  replaced an mmproj-on-CPU setup whose TTFT was 13–116 s — see the measured A/B in §6.1.
 - **Draft acceptance** 0.53–0.90 depending on task shape; MTP3 avoids the position-4 collapse.
+
+### 6.1 Vision with the projector on the GPU — measured A/B
+
+The B70 sat on the **CPU** (`LLAMA_ARG_MMPROJ_OFFLOAD=false`) until 2026-10-23. This was an
+**oversight, not a decision**: the XTX had already been measured on 2026-10-06 (issue #10,
+8.9× on image prefill, TTFT 65.6 → 7.35 s) and runs the projector on the GPU by simply omitting
+the variable. The B70's config never followed. The gain below reproduces the XTX result. Measured on **one image digest**
+(`sha256:7935d24a…`, dev b11706), **one flag flipped**, everything else identical:
+
+| Task | prompt_n | CPU mmproj: prefill / TTFT | **GPU mmproj: prefill / TTFT** | speedup |
+|---|---|---|---|---|
+| V1 | 3528 | 49.95 tok/s / 70.64 s | **255.70 tok/s / 13.80 s** | **5.1×** |
+| V2 | 1064 | 81.92 tok/s / 12.99 s | **366.63 tok/s / 2.90 s** | **4.5×** |
+| V3 | 4160 | 35.95 tok/s / 115.71 s | **266.45 tok/s / 15.61 s** | **7.4×** |
+
+Decode was unchanged (−1.1 % … +5.6 %) and draft acceptance unchanged, as expected for a device-placement
+change. `T1` (text, no image) moved −16 % on a 43-token prompt, i.e. inside the fixed-cost noise band
+already documented for that task — the mmproj flag does not touch the text path.
+
+**Memory.** The main model buffer stays **one unsplit allocation** at `17402.38 MiB`; the projector adds
+`848.18 MiB` to device `SYCL0` plus `24.93 MiB` on CPU (`[mtmd] adding 848.18 MiB to fit_params_target for
+device SYCL0`). At 128k that is ~25.3 GB of the card's 32 GB.
+
+**Verified on the running server, not from the launch intent:** `clip_ctx: CLIP using SYCL0 backend`
+(with the old config the same line read `CLIP using CPU backend`).
+
+**Model quality is unaffected.** V2 still fabricates designators and V3 still reports `113S` for a `118S`
+tyre — identical to the CPU configuration on the same digest. Device placement changes speed, not reading.
 
 ## 7. Stability assertions
 
@@ -477,3 +512,4 @@ Reading the numbers:
 | 2026-10-20 | **A3 re-run for issue #30 — PASSES on the same image.** The first run's 1 h A3 timeout was traced to a **harness** problem, not the backend: the agent looped 125x on one `bash` command and 130x on one `web_fetch_file` URL without tripping `dsh-repeat-tool-breaker` 0.11.4, because the shipped gate needs **12** identical fingerprints inside a **16**-call window while the observed peak was **9** (`onLimit: ask` also cannot work unattended -- a headless approval returns `unavailable`, which the plugin treats fail-closed). Re-running with the breaker's `exact/cmd/net/sink: 5`, `host: 6`, `onLimit: deny` in the **test home only** (validated against the plugin's own code first) cut the loop: max repeats of one call fell 130 -> 5, tool calls 586 -> 81, and A3 **completed in ~35 min with a sourced answer of 258.6 cm** for 2025-11-01..2026-12-31, **independently recomputed from the agent's own downloaded CSV** (353 days, 75 snow days, max 21.0 cm on 2026-01-15, all monthly values reproduced). Same image digest, same golden config, same prompt. Issue #30 now stands at **6 PASS / 2 FAIL** (V2, V3 -- both vision model-quality defects, both carried over from the v0.6.0 baseline), so the image is still **not promoted**. Analysis: `evidence/a3-loop-analysis.md` in the same report directory. |
 | 2026-10-21 | **A3 re-run on the LATEST dsh-container — the loop is still not fixed upstream.** New harness `sha256:ae65d5e03225…` (dsh 0.2.1-rc.2) ships `dsh-repeat-tool-breaker` **0.11.6**, whose **limits are byte-identical to 0.11.4** (`window 16`, `exact/cmd/net/sink 12`, `host 16`, `onLimit ask`); only sink attribution changed. Replaying the issue-30 timed-out session through 0.11.6's own `fingerprints()` and window accounting still peaks at **9** (limit 12) — the gate **never fires**, so the tightened test-home config is still required. With it, A3 completed in ~11 min (88 tool calls, max repeats 2, 5 blocks fired) but **produced no total**: the agent correctly found that the ECCC `climate-daily` collection returns genuinely empty `TOTAL_SNOW` for `STN_ID=4337`, then reached `ottawa.weatherstats.ca` but probed only `/metrics/snow.html` and `/data/snow-daily.json` and never tried the endpoint that carries the data (`download.html?formdata=ok&type=daily&limit=50000` — re-fetched afterwards: HTTP 200, same 258.6 cm). **A3 is therefore not a binary pass/fail on the image** — its outcome is decided by which endpoints the agent probes. dsh 0.2.1-rc.2 also **stopped materializing the `llm-pi-ai` provider row** in the generated profile patch, so the route must be declared explicitly in the test home or the boot fails with `NO_ADAPTER`. Analysis: `evidence/a3-latest-harness-analysis.md`. Issue #30 remains **not promoted** (V2, V3 — vision model-quality defects carried over from the v0.6.0 baseline). |
 | 2026-10-21 | **PROMOTED issue #30 candidate to `:stable`** — `sha256:b265f403…` (llama.cpp **v0.7.0**), replacing `sha256:b5799bf3…` (v0.6.0). Intel stack byte-identical to the outgoing stable, so this is a **llama.cpp-only change** (`v0.6.0` → `v0.7.0`; in-image `libllama.so.0.7.0` / `libggml-base.so.0.27.0`); subtree advanced 3986 files (+97012/−35390), of which `ggml/src/ggml-sycl/` is 28 files, +2717/−418 (`fused-gemm.cpp/hpp` new, `mmvq.cpp`/`vecdotq.cpp` reworked, `fattn.cpp` MKL-FA gate extended to a GLM-4.7 MLA shape). Promote moves `:stable`, the new clean release tag `:server-c26.35.39758.10-v0.7.0`, and `:latest` (advanced 2026-10-10 → 2026-10-16, monotonic by build date); `:server-dev` untouched; the v0.6.0 rollback tag still resolves to `sha256:b5799bf3…`. **Test outcome: 6 PASS / 2 FAIL** — T1/T2/A1/A2/A3/V1 pass; **V2 FAIL** (16/21 labels, fabricated `Q05–Q16`/`U53A/B`/`X2`/`SATA1–6`) and **V3 FAIL** (`113S` vs truth `118S`, third occurrence of that defect class). **Both failures are vision model-quality defects, both reproduced on the v0.6.0 baseline, and neither is a property of this image** — the backend handled both images identically, returning clean 200s with correct timings. The maintainer reviewed the report and **promoted on the strength of the backend-stability evidence, with V2/V3 accepted as known task-side defects**; the V-block is a known-broken gate, not a regression. Stability: zero crash/OOM/device-loss signatures across 4,351,498 + 301,850 + 392,003 log lines, `RestartCount=0`, `OOMKilled=false`, `SYCL0 model buffer size = 17402.38 MiB` **unsplit** (memory-splitting trap did not fire), KV `4352.00 MiB`, long-prompt prefill unchanged (A2 606.85 tok/s at 8993 tok, +1.9 %), decode within noise, draft acceptance equal or better on 6/8, no leak onto the XTX. **A3 caveat for the next run:** A3 ran three times on this same digest with three outcomes (1 h timeout → 258.6 cm → no total); the timeout was a **harness** gap (`dsh-repeat-tool-breaker` 0.11.4/0.11.6 both ship a limit of 12 against an observed 16-call-window peak of 9, so the gate never fired) and the remaining variability is which endpoints the agent probes — pinning the data source (`ottawa.weatherstats.ca/download.html?formdata=ok&type=daily&limit=50000`) in the task definition makes it deterministic. Neither affects the image. `b70-sycl` was stopped with consent and restored; **SMG did not self-heal again** (worker `/health` ok while `/workers` reported `failed`) and needed `docker restart smg`. Report: [`benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md`](../benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md). |
+| 2026-10-23 | **Fixed a golden/skill contradiction: the vision projector now runs on the GPU, not the CPU.** `LLAMA_ARG_MMPROJ_OFFLOAD` changed **false → true** in §3, with §9 mirrors (`examples/qwen27b-server.sh`, `docker-compose.yml`) updated to match. The config had carried `--no-mmproj-offload` since **2026-08-25** (`f0233ef1c`, written into GOLDEN-CONFIG by `efdec1509` on 2026-09-14, migrated to the env-var form by `62feebbed` on 2026-09-23) while the test skill asserted *"the B70 puts the projector on the GPU, the XTX uses `--no-mmproj-offload`"* — and, decisively, **the XTX had already run the projector on the GPU since 2026-10-06** (issue #10: image prefill 53.8 → 480.3 t/s, 8.9×; TTFT 65.6 → 7.35 s), simply by omitting the variable. The B70 never followed: this was an **oversight, not a decision**. B70 VRAM has the headroom, so the GPU is the right default on both cards. **Measured A/B on one image digest (`sha256:7935d24a…`, dev b11706), one flag flipped:** V1 TTFT 70.64 → **13.80 s** (5.1×), V2 12.99 → **2.90 s** (4.5×), V3 115.71 → **15.61 s** (7.4×); prefill 256–367 tok/s; decode unchanged (−1.1…+5.6 %); main model buffer still **one unsplit 17402.38 MiB allocation**, projector adds 848.18 MiB to `SYCL0` + 24.93 MiB CPU (~25.3 GB of 32 GB at 128k). Verified on the running server: `clip_ctx: CLIP using SYCL0 backend` (was `CLIP using CPU backend`). Model quality unchanged — V2 still fabricates designators and V3 still returns `113S` for a `118S` tyre, exactly as on the CPU config. Full A/B in §6.1. **Tag move:** `:server-dev` → `sha256:7935d24a…` (dev b11706, issue #31). `:latest` was **deliberately left at v0.7.0** (`LATEST=0`) even though b11706 is the newer build, because the deployed `llm_backends` stack tracks `image: …:latest` — letting `:latest` point at a dev image would silently put a dev build into production on the next stack recreate. |

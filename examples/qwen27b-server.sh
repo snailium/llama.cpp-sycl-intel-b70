@@ -78,7 +78,7 @@ export ZES_ENABLE_SYSMAN=1                   # sysman queries (memory / utilisat
 # --- server configuration, as LLAMA_ARG_* ----------------------------------
 export LLAMA_ARG_MODEL="$MODEL"
 export LLAMA_ARG_MMPROJ="$MMPROJ"
-export LLAMA_ARG_MMPROJ_OFFLOAD=false        # == --no-mmproj-offload
+export LLAMA_ARG_MMPROJ_OFFLOAD=true         # == --mmproj-offload (GPU); B70 has VRAM headroom
 export LLAMA_ARG_IMAGE_MIN_TOKENS=1024
 export LLAMA_ARG_N_GPU_LAYERS=999
 export LLAMA_ARG_CTX_SIZE="$CTX"
