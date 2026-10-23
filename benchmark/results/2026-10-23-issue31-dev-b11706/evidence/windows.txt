@@ -1,0 +1,17 @@
+t1 START utc=2026-10-23T06:32:31Z epoch=1792737151 logline_before=46732
+t1 END   utc=2026-10-23T06:34:44Z epoch=1792737284 logline_after=148278
+t2 START utc=2026-10-23T06:34:45Z epoch=1792737285 logline_before=148279
+t2 END   utc=2026-10-23T06:37:57Z epoch=1792737477 logline_after=296719
+v1 START utc=2026-10-23T06:37:59Z epoch=1792737479 logline_before=296719
+v1 END   utc=2026-10-23T06:39:36Z epoch=1792737576 logline_after=311303
+v2 START utc=2026-10-23T06:39:38Z epoch=1792737578 logline_before=311303
+v2 END   utc=2026-10-23T06:40:37Z epoch=1792737637 logline_after=337289
+v3 START utc=2026-10-23T06:40:38Z epoch=1792737638 logline_before=337289
+v3 END   utc=2026-10-23T06:42:48Z epoch=1792737768 logline_after=343959
+a1_security START utc=2026-10-23T06:42:50Z epoch=1792737770 logline_before=343959
+a1_security END   utc=2026-10-23T06:47:33Z epoch=1792738053 logline_after=478811
+a2_hostinfo START utc=2026-10-23T06:47:35Z epoch=1792738055 logline_before=478811
+a2_hostinfo END   utc=2026-10-23T06:48:38Z epoch=1792738118 logline_after=508185
+a3_snowfall START utc=2026-10-23T06:48:40Z epoch=1792738121 logline_before=508185
+a3_snowfall END   utc=2026-10-23T07:10:17Z epoch=1792739417 logline_after=941326
+BATTERY DONE utc=2026-10-23T07:10:17Z

@@ -1,0 +1,18 @@
+=== Stability scan — SCOPE: captured agent-task windows only (A1+A2+A3).
+=== The full-run log was NOT captured before the test container was removed;
+=== direct-task windows are therefore not scanned. See REPORT.md caveat.
+
+lines scanned: 597370
+
+SIGSEGV                            0
+UR_RESULT_ERROR                    0
+device lost                        0
+Failed to allocate physical memory 0
+ggml_sycl_pool_vmm                 0
+GGML_ASSERT                        0
+stack smashing                     0
+as wedged                          0
+GPU hang                           0
+Out of memory                      0
+terminate called                   0
+Unhandled exception                0

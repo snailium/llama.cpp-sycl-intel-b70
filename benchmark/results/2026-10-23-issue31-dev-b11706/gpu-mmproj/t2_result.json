@@ -1,0 +1,22 @@
+{
+ "task": "t2",
+ "wall_s": 190.117,
+ "ttft_s": 0.814,
+ "finish_reason": "stop",
+ "usage": null,
+ "timings": {
+  "cache_n": 0,
+  "prompt_n": 32,
+  "prompt_ms": 502.377,
+  "prompt_per_token_ms": 15.69928125,
+  "prompt_per_second": 63.69718358921686,
+  "predicted_n": 8718,
+  "predicted_ms": 189302.50400000002,
+  "predicted_per_token_ms": 21.71647401629001,
+  "predicted_per_second": 46.04799099752003,
+  "draft_n": 7275,
+  "draft_n_accepted": 6292
+ },
+ "reasoning_present": null,
+ "content_chars": 19421
+}
