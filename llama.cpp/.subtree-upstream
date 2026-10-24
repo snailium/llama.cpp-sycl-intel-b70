@@ -8,11 +8,11 @@
 # The fields below record exactly where the current content came from, so a
 # build can be traced back to an upstream commit and a b tag (the stable
 # workflow tags images by v* version; the dev workflow needs the b tag).
-tag=b11706
-b_tag=b11706
-commit=f74e2fa6a31cc33ab4ee4ae516641cfe62df3924
-tag_object=f74e2fa6a31cc33ab4ee4ae516641cfe62df3924
+tag=b11849
+b_tag=b11849
+commit=0ae0e1976670fac25f4e0ed864df30021accc764
+tag_object=0ae0e1976670fac25f4e0ed864df30021accc764
 tag_type=commit
 version=0.7.0
-synced=2026-10-17
-subject=sycl: fix prompt-processing regression after Q4_0/Q8_0 weight reorder (#30374)
+synced=2026-10-24
+subject=hexagon: add SGN op  (#30346)
