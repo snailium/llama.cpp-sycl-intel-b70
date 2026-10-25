@@ -189,7 +189,7 @@ jobs:
             fi
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "strategy=force" >> $GITHUB_OUTPUT
-            echo "reason=Forced by manual dispatch (subtree $CURRENT_B -> upstream $LATEST_B)"
+            echo "reason=Forced by manual dispatch (subtree $CURRENT_B -> upstream $LATEST_B)" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -197,7 +197,7 @@ jobs:
             echo "should_build=false" >> $GITHUB_OUTPUT
             echo "should_advance=false" >> $GITHUB_OUTPUT
             echo "strategy=point-to-stable" >> $GITHUB_OUTPUT
-            echo "reason=Upstream's newest tag is a release (${{ steps.upstream.outputs.latest_v }}), newer than $LATEST_B. Suggest pointing the dev image at the latest stable."
+            echo "reason=Upstream's newest tag is a release (${{ steps.upstream.outputs.latest_v }}), newer than $LATEST_B. Suggest pointing the dev image at the latest stable." >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -206,7 +206,7 @@ jobs:
             echo "should_build=false" >> $GITHUB_OUTPUT
             echo "should_advance=false" >> $GITHUB_OUTPUT
             echo "strategy=up-to-date" >> $GITHUB_OUTPUT
-            echo "reason=Subtree is already at the newest upstream b tag ($LATEST_B) - nothing to build."
+            echo "reason=Subtree is already at the newest upstream b tag ($LATEST_B) - nothing to build." >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -225,11 +225,11 @@ jobs:
           if [ -n "$TOKEN" ] && [[ "$TAGS" == *"$PREFIX"* ]]; then
             echo "should_build=false" >> $GITHUB_OUTPUT
             echo "strategy=skip-duplicate" >> $GITHUB_OUTPUT
-            echo "reason=Image ${PREFIX%?} already exists in GHCR - advancing the subtree to $LATEST_B without rebuilding."
+            echo "reason=Image ${PREFIX%?} already exists in GHCR - advancing the subtree to $LATEST_B without rebuilding." >> $GITHUB_OUTPUT
           else
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "strategy=build-dev" >> $GITHUB_OUTPUT
-            echo "reason=Newer b tag $LATEST_B available (subtree was $CURRENT_B). Syncing the subtree and building dev with compute-runtime-derived Intel pins."
+            echo "reason=Newer b tag $LATEST_B available (subtree was $CURRENT_B). Syncing the subtree and building dev with compute-runtime-derived Intel pins." >> $GITHUB_OUTPUT
           fi
 
       # ============================================================
