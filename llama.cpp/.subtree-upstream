@@ -8,11 +8,11 @@
 # The fields below record exactly where the current content came from, so a
 # build can be traced back to an upstream commit and a b tag (the stable
 # workflow tags images by v* version; the dev workflow needs the b tag).
-tag=b11849
-b_tag=b11849
-commit=0ae0e1976670fac25f4e0ed864df30021accc764
-tag_object=0ae0e1976670fac25f4e0ed864df30021accc764
+tag=b12019
+b_tag=b12019
+commit=1052f7e1d62611d328ccc65d38c77cd194ee59fc
+tag_object=1052f7e1d62611d328ccc65d38c77cd194ee59fc
 tag_type=commit
-version=0.7.0
-synced=2026-10-24
-subject=hexagon: add SGN op  (#30346)
+version=0.8.0
+synced=2026-10-31
+subject=chat : strip the think block in the qwen3-coder with reasoning_format none (#31380)
