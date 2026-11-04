@@ -4,23 +4,31 @@
 > repository is evidence, history, or experiment. If a document disagrees with this file, this
 > file wins (and the other document should be dated/superseded).
 >
-> As of **2026-09-20** (llama.cpp **v0.4.1**, promoted from issue #18).
+> As of **2026-11-04**: the golden image is **`:latest`** — the most recently tested *and*
+> promoted build, monotonic by image build date (§1.1). **This file deliberately does not
+> track version numbers, digests or rollback points**: every promote records the digest it
+> moved (in its workflow log and its issue), and every test report records the digest it
+> tested. Read the digest off the running image, never off this file.
 > Host placeholders are used on purpose: this repo is public — **never commit internal IPs,
 > usernames, or absolute host paths here.**
 
 ## 1. Image
 
+The golden image is **`ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:latest`**.
+
+`:latest` means "the freshest build that passed the B70 suite **and** was promoted" — on either
+channel — and it never moves backwards in time (§1.1). Deploying `:latest` therefore deploys the
+most recently validated bits, so **a promote does not require editing this file**: the promote run
+records the digest it moved, and the test report records the digest it tested.
+
 | Item | Value |
 |---|---|
-| Image (pinned) | `ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:server-c26.35.39758.10-v0.7.0` |
-| Image (floating) | `…:stable` |
-| Image (last known-good) | `…:latest` — see §1.1 |
-| Digest (all four tags) | `sha256:b265f4034978affce09c482374ce09dc5bf97852a3cede3bdabcbb84d90c2377` |
-| llama.cpp | v0.7.0 (in-image `libllama.so.0.7.0` / `libggml-base.so.0.27.0`) |
-| Intel stack | compute-runtime `26.35.39758.10` (`libze_intel_gpu.so.1.17.39758`) / IGC `v2.41.5+1788943183` / Level Zero loader `1.32.0` |
+| Image | `ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70:latest` |
+| Role | the tested-bits pointer we deploy; `:stable` is the stable-channel alias of the same promote |
+| Pin it per run | published: `docker buildx imagetools inspect …:latest` → `Digest:` · running: `docker inspect <container> --format '{{.Image}}'` |
 | oneDNN / XMX | `-DGGML_SYCL_DNN=ON`; `libdnnl.so.3` linked; runtime gate `GGML_SYCL_FA_ONEDNN` **defaults to 1** |
 | Entrypoint | `/app/llama-server` (image default — **never override it**) |
-| Rollback point | `sha256:b265f4034978affce09c482374ce09dc5bf97852a3cede3bdabcbb84d90c2377` (v0.7.0, current). Previous: `sha256:b5799bf3f66bc1fb5ed6e52534e8f6e9e84bab57105f83ae210fd168208d8b41` (v0.6.0) |
+| llama.cpp / Intel stack | **read them off the image**, do not assume: `libllama.so.*`, and `dpkg -l | grep -E 'intel-opencl-icd\|libze-intel-gpu1\|intel-igc'` |
 
 ### 1.1 Tag semantics
 
@@ -58,9 +66,10 @@ and [`…-retest.md`](../benchmark/results/2026-09-23-issue21-v050-retest.md).
 The Intel stack is **byte-identical** to the previous stable, so this is a **llama.cpp-only change**
 (v0.4.1 → v0.5.0); the two passes bracket the baseline on every task, i.e. no measured regression.
 
-> ⚠️ **The promoted image predates the `DEBUG_FLAG` change (commit `f0cf4df`).** Its entrypoint is
-> still `["/app/llama-server"]`, so `-e DEBUG_FLAG=-v` is **inert** on this digest — pass `-v` as a
-> real argument, or rebuild. See §2.1.
+> ℹ️ Images built **before** commit `f0cf4df` have `ENTRYPOINT ["/app/llama-server"]`, so
+> `-e DEBUG_FLAG=-v` is inert on them. Every current build ships the wrapper entrypoint
+> (§2.1); confirm with `docker image inspect <image> --format '{{json .Config.Entrypoint}}'`
+> before relying on `-v`.
 
 Verify a pulled image before serving:
 
@@ -370,69 +379,31 @@ docker inspect <container> --format 'restart={{.RestartCount}} status={{.State.S
 
 Model load takes ~2 minutes (17.7 GB main + draft + mmproj) before `/v1/models` answers 200.
 
-## 6. Expected performance (v0.7.0 full suite, golden config)
+## 6. Expected performance
 
-Measured **2026-10-16** on a single Arc Pro B70 with the exact configuration above, on
-llama.cpp **v0.7.0** / compute-runtime `26.35.39758.10`. Full report:
-[`benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md`](../benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md).
+**Per-run numbers live in the issue, not in this file.** Every promote comes from a full-suite run
+whose report is linked in that issue (and in the promote workflow run), together with the digest
+tested, the baseline it was compared against, and the per-task table.
 
-Agent-task (A1-A3) rows aggregate the task's own calls; direct tasks (T1/T2/V1-V3) are one
-request each. Prefill for agent rows is the largest-prompt call, TTFT the first.
+```bash
+# the issues that promoted each build, newest first
+gh issue list --repo snailium/llama.cpp-sycl-intel-b70 --label stable --state closed
+# the digest a promote actually moved
+gh run view <run-id> --log | grep -E 'previous :stable|new      :stable'
+```
 
-| Task | fill (tok/s) | TTFT s | decode (tok/s) | draft acc |
-|---|---|---|---|---|
-| T1 (html) | 45.33 (43-tok prompt) | 0.949 | 41.06 | 0.736 |
-| T2 (svg) | 46.03 (32-tok prompt) | 0.695 | 46.72 | 0.871 |
-| A1 (security review, agent) | 541.64 | 20.046 | 22.04 | 0.495 |
-| A2 (hostinfo, agent) | 606.85 | 14.819 | 41.72 | 0.807 |
-| A3 (snowfall, agent) | 598.49 | 20.857 | 37.31 | 0.796 |
-| V1 (game, vision) | 49.23 | 71.665 | 37.68 | 0.638 |
-| V2 (pcb, vision) | 78.72 | 13.517 | 35.13 | 0.552 |
-| V3 (tire, vision) | 45.45 | 91.520 | 34.99 | 0.567 |
+What is **structural**, and therefore useful without a table:
 
-**Reading the T1/A1 prefill rows against the v0.6.0 table below:** T1's apparent −27 % is
-**fixed per-request cost on a 43-token prompt** (+260 ms once per request), not a throughput
-change — T2, with a *shorter* 32-token prompt, moves by the same absolute amount, and the
-long-prompt measure is unchanged (A2 at 8993 tokens is 606.85 tok/s, +1.9 %). Decode is within
-noise on every task, and draft acceptance is equal or better on 6 of 8.
-
-The **v0.6.0 baseline** (2026-10-05) remains useful as a long-range reference, as does the
-**v0.4.1 baseline** (compute-runtime `26.31.39395.13`, 2026-09-14):
-
-| Task | v0.6.0 fill | v0.6.0 TTFT | v0.6.0 decode | v0.6.0 acc |
-|---|---|---|---|---|
-| T1 (html) | 62.4 | 0.69 | 42.18 | 0.737 |
-| T2 (svg) | 50.3 | 0.64 | 45.74 | 0.857 |
-| A1 (security review, agent) | 580.4 | 1.06 | 22.91 | 0.528 |
-| A2 (hostinfo, agent) | 595.3 | 0.75 | 40.58 | 0.765 |
-| A3 (snowfall, agent) | 527.5 | 0.74 | 32.22 | 0.740 |
-| V1 (game, vision) | 48.1 | 73.35 | 34.55 | 0.560 |
-| V2 (pcb, vision) | 78.7 | 13.52 | 36.10 | 0.588 |
-| V3 (tire, vision) | 45.0 | 92.42 | 32.70 | 0.509 |
-
-| Task | fill (tok/s) | TTFT med/mean | decode (tok/s) | draft acc |
-|---|---|---|---|---|
-| t1_html | 64.0 (43-tok prompt) | 0.67 s | 41.4 | 0.744 |
-| t2_svg | 49.5 (32-tok prompt) | 0.65 s | 46.2 | 0.897 |
-| t3_security (agent) | 472.3 | 3.90 / 9.12 s | 20.82 | 0.532 |
-| t4_hostinfo (agent) | 492.2 | 3.55 / 8.24 s | 37.57 | 0.809 |
-| t5_snowfall (agent) | 298.6 | 0.96 / 1.59 s | 33.93 | 0.812 |
-| V1 game (vision) | 32.5 | 110.8 s | 34.1 | 0.574 |
-| V2 pcb (vision) | 59.3 | 18.6 s | 36.8 | 0.606 |
-| V3 tire (vision) | 29.6 | 141.0 s | 40.1 | 0.733 |
-
-Reading the numbers:
-
-- **Text prefill (fill)** is the XMX/oneDNN SDPA path — 470–490 tok/s weighted on agent tasks,
-  570–600 tok/s in bursts. Quantized KV gets there via dequantize→f16 followed by SDPA (upstream
-  #25874, merged 2026-08-04).
-- **Decode** is memory-bound: 40–46 tok/s on short contexts, ~21 tok/s at the deep end of a long
-  agent task. This is the structural ceiling for a single stream on this part (upstream #26581) —
-  aggregate throughput via concurrency is where the headroom is.
-- **Vision** with the projector on the **GPU** (`--mmproj-offload`, this golden): TTFT **2.9–15.6 s**,
-  prefill 256–367 tok/s, decode after the image normal (36–38 tok/s), speculation working. This
-  replaced an mmproj-on-CPU setup whose TTFT was 13–116 s — see the measured A/B in §6.1.
-- **Draft acceptance** 0.53–0.90 depending on task shape; MTP3 avoids the position-4 collapse.
+- **Text prefill** is the XMX/oneDNN SDPA path: several hundred tok/s on long prompts.
+- **Decode** is memory-bound, ~35–60 tok/s on a single stream and lower at the deep end of a long
+  agent task. That is the structural ceiling for one stream on this part; concurrency is where the
+  headroom is.
+- **Vision** with the projector on the GPU (§6.1) has TTFT in seconds, not minutes; decode after
+  the image is the ordinary text path.
+- **Draft acceptance** is 0.5–0.9 depending on task shape — always report it **with K**, because
+  acceptance is only comparable at equal K, and MTP3 is preferred over MTP4 (position-4 collapses).
+- **T1/T2 prefill and TTFT are fixed per-request cost on a 32–43-token prompt**, not throughput.
+  Compare long-prompt rows (A1/A2/A3) when judging prefill.
 
 ### 6.1 Vision with the projector on the GPU — measured A/B
 
@@ -476,10 +447,10 @@ tyre — identical to the CPU configuration on the same digest. Device placement
    card (VRAM), so a test image must replace it — not run beside it.
 3. **Promote by digest, never by moving a tag by hand** — run `promote-stable.yml` with
    `expected_digest` set to the tested digest; the workflow verifies it and refuses a mismatch.
-4. **Rollback point**: `sha256:d7f303202d55357da11e3e6f0c7dae3bed6f381dbeb930ead4208d0fcb1742f5`
-   (v0.4.1, the stable this replaced on 2026-09-24). Roll back by stopping the current container and
-   starting one from that digest. (Older: `sha256:5af1e229…`, compute-runtime `26.31.39395.13`, the
-   last pre-driver-bump stable.)
+4. **Rollback**: re-point `:stable` / `:latest` at the **previous promote's digest** — it is in that
+   promote run's log (`previous :stable -> sha256:…`), in the issue, and on the container that was
+   running before the change. Roll back by stopping the current container and starting one from that
+   digest. There is no fixed rollback row in this file by design.
 5. Any configuration change gets its own dated entry below, and any superseded document gets a
    `Superseded by …` line at the top.
 
@@ -513,3 +484,4 @@ tyre — identical to the CPU configuration on the same digest. Device placement
 | 2026-10-21 | **A3 re-run on the LATEST dsh-container — the loop is still not fixed upstream.** New harness `sha256:ae65d5e03225…` (dsh 0.2.1-rc.2) ships `dsh-repeat-tool-breaker` **0.11.6**, whose **limits are byte-identical to 0.11.4** (`window 16`, `exact/cmd/net/sink 12`, `host 16`, `onLimit ask`); only sink attribution changed. Replaying the issue-30 timed-out session through 0.11.6's own `fingerprints()` and window accounting still peaks at **9** (limit 12) — the gate **never fires**, so the tightened test-home config is still required. With it, A3 completed in ~11 min (88 tool calls, max repeats 2, 5 blocks fired) but **produced no total**: the agent correctly found that the ECCC `climate-daily` collection returns genuinely empty `TOTAL_SNOW` for `STN_ID=4337`, then reached `ottawa.weatherstats.ca` but probed only `/metrics/snow.html` and `/data/snow-daily.json` and never tried the endpoint that carries the data (`download.html?formdata=ok&type=daily&limit=50000` — re-fetched afterwards: HTTP 200, same 258.6 cm). **A3 is therefore not a binary pass/fail on the image** — its outcome is decided by which endpoints the agent probes. dsh 0.2.1-rc.2 also **stopped materializing the `llm-pi-ai` provider row** in the generated profile patch, so the route must be declared explicitly in the test home or the boot fails with `NO_ADAPTER`. Analysis: `evidence/a3-latest-harness-analysis.md`. Issue #30 remains **not promoted** (V2, V3 — vision model-quality defects carried over from the v0.6.0 baseline). |
 | 2026-10-21 | **PROMOTED issue #30 candidate to `:stable`** — `sha256:b265f403…` (llama.cpp **v0.7.0**), replacing `sha256:b5799bf3…` (v0.6.0). Intel stack byte-identical to the outgoing stable, so this is a **llama.cpp-only change** (`v0.6.0` → `v0.7.0`; in-image `libllama.so.0.7.0` / `libggml-base.so.0.27.0`); subtree advanced 3986 files (+97012/−35390), of which `ggml/src/ggml-sycl/` is 28 files, +2717/−418 (`fused-gemm.cpp/hpp` new, `mmvq.cpp`/`vecdotq.cpp` reworked, `fattn.cpp` MKL-FA gate extended to a GLM-4.7 MLA shape). Promote moves `:stable`, the new clean release tag `:server-c26.35.39758.10-v0.7.0`, and `:latest` (advanced 2026-10-10 → 2026-10-16, monotonic by build date); `:server-dev` untouched; the v0.6.0 rollback tag still resolves to `sha256:b5799bf3…`. **Test outcome: 6 PASS / 2 FAIL** — T1/T2/A1/A2/A3/V1 pass; **V2 FAIL** (16/21 labels, fabricated `Q05–Q16`/`U53A/B`/`X2`/`SATA1–6`) and **V3 FAIL** (`113S` vs truth `118S`, third occurrence of that defect class). **Both failures are vision model-quality defects, both reproduced on the v0.6.0 baseline, and neither is a property of this image** — the backend handled both images identically, returning clean 200s with correct timings. The maintainer reviewed the report and **promoted on the strength of the backend-stability evidence, with V2/V3 accepted as known task-side defects**; the V-block is a known-broken gate, not a regression. Stability: zero crash/OOM/device-loss signatures across 4,351,498 + 301,850 + 392,003 log lines, `RestartCount=0`, `OOMKilled=false`, `SYCL0 model buffer size = 17402.38 MiB` **unsplit** (memory-splitting trap did not fire), KV `4352.00 MiB`, long-prompt prefill unchanged (A2 606.85 tok/s at 8993 tok, +1.9 %), decode within noise, draft acceptance equal or better on 6/8, no leak onto the XTX. **A3 caveat for the next run:** A3 ran three times on this same digest with three outcomes (1 h timeout → 258.6 cm → no total); the timeout was a **harness** gap (`dsh-repeat-tool-breaker` 0.11.4/0.11.6 both ship a limit of 12 against an observed 16-call-window peak of 9, so the gate never fired) and the remaining variability is which endpoints the agent probes — pinning the data source (`ottawa.weatherstats.ca/download.html?formdata=ok&type=daily&limit=50000`) in the task definition makes it deterministic. Neither affects the image. `b70-sycl` was stopped with consent and restored; **SMG did not self-heal again** (worker `/health` ok while `/workers` reported `failed`) and needed `docker restart smg`. Report: [`benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md`](../benchmark/results/2026-10-16-issue30-v070-stable/REPORT.md). |
 | 2026-10-23 | **Fixed a golden/skill contradiction: the vision projector now runs on the GPU, not the CPU.** `LLAMA_ARG_MMPROJ_OFFLOAD` changed **false → true** in §3, with §9 mirrors (`examples/qwen27b-server.sh`, `docker-compose.yml`) updated to match. The config had carried `--no-mmproj-offload` since **2026-08-25** (`f0233ef1c`, written into GOLDEN-CONFIG by `efdec1509` on 2026-09-14, migrated to the env-var form by `62feebbed` on 2026-09-23) while the test skill asserted *"the B70 puts the projector on the GPU, the XTX uses `--no-mmproj-offload`"* — and, decisively, **the XTX had already run the projector on the GPU since 2026-10-06** (issue #10: image prefill 53.8 → 480.3 t/s, 8.9×; TTFT 65.6 → 7.35 s), simply by omitting the variable. The B70 never followed: this was an **oversight, not a decision**. B70 VRAM has the headroom, so the GPU is the right default on both cards. **Measured A/B on one image digest (`sha256:7935d24a…`, dev b11706), one flag flipped:** V1 TTFT 70.64 → **13.80 s** (5.1×), V2 12.99 → **2.90 s** (4.5×), V3 115.71 → **15.61 s** (7.4×); prefill 256–367 tok/s; decode unchanged (−1.1…+5.6 %); main model buffer still **one unsplit 17402.38 MiB allocation**, projector adds 848.18 MiB to `SYCL0` + 24.93 MiB CPU (~25.3 GB of 32 GB at 128k). Verified on the running server: `clip_ctx: CLIP using SYCL0 backend` (was `CLIP using CPU backend`). Model quality unchanged — V2 still fabricates designators and V3 still returns `113S` for a `118S` tyre, exactly as on the CPU config. Full A/B in §6.1. **Tag move:** `:server-dev` → `sha256:7935d24a…` (dev b11706, issue #31). `:latest` was **deliberately left at v0.7.0** (`LATEST=0`) even though b11706 is the newer build, because the deployed `llm_backends` stack tracks `image: …:latest` — letting `:latest` point at a dev image would silently put a dev build into production on the next stack recreate. |
+| 2026-11-04 | **`:latest` is now the golden image, and this file stops tracking version/digest/rollback rows.** §1 points at `:latest` (monotonic by build date) and says to read the digest off the image or the promote run; §6 no longer carries a per-release performance table and instead points at the promoting issue for numbers, keeping only the structural reading; §8.4's fixed rollback digest is replaced by "the previous promote's digest". Reason: the per-release rows drifted every time (the 2026-10-05 drift entry below is the same failure), while the pointer does not. Same change fixed the §2.1 `DEBUG_FLAG` note, which still described the pre-`f0cf4df` entries as current. Promote that motivated it: issue #36, llama.cpp **v0.9.0**, digest `sha256:0440302c…`, `:latest` advanced 2026-10-28 → 2026-11-04. |
