@@ -146,6 +146,31 @@ jobs:
           [ -z "$LZU" ] && LZU=$(echo "$LZS" | tail -1)
           [ -z "$LZU" ] && LZU="u24.04"
           echo "  base distro $OBASE -> level-zero ubuntu suffix $LZU"
+          # --- Pair the oneAPI base image with the IGC release train ---------
+          # IGC, the SYCL runtime and dnnl are published per oneAPI train; they
+          # are not independently versioned. Deriving ONEAPI_VERSION here,
+          # instead of leaving the Dockerfile default in place, is what keeps
+          # the image down to a single compiler tree. See issue #39.
+          IGC_MM=$(echo "$IGC" | sed -E 's/^v?([0-9]+\.[0-9]+).*/\1/')
+          case "$IGC_MM" in
+            2.41) ONEAPI_REL=2026.1.2 ;;
+            2.42) ONEAPI_REL=2026.2.0 ;;
+            *)    ONEAPI_REL="" ;;
+          esac
+          OS_SUFFIX=$(grep '^ARG ONEAPI_VERSION=' .devops/intel.Dockerfile | head -1 | cut -d= -f2 | grep -oE 'ubuntu[0-9]+\.[0-9]+' | head -1)
+          [ -z "$OS_SUFFIX" ] && OS_SUFFIX="ubuntu26.04"
+          if [ -n "$ONEAPI_REL" ]; then
+            ONEAPI_TAG="${ONEAPI_REL}-devel-${OS_SUFFIX}"
+            # Fail loudly instead of silently building against a mismatched train.
+            curl -sf "https://hub.docker.com/v2/repositories/intel/deep-learning-essentials/tags/${ONEAPI_TAG}" >/dev/null \
+              || { echo "ERR: intel/deep-learning-essentials:${ONEAPI_TAG} not found for IGC ${IGC_MM}; add a mapping for this train." >&2; exit 1; }
+          else
+            echo "::warning::no oneAPI train mapping for IGC ${IGC_MM}; falling back to the Dockerfile default"
+            ONEAPI_TAG=$(grep '^ARG ONEAPI_VERSION=' .devops/intel.Dockerfile | head -1 | cut -d= -f2)
+          fi
+          echo "oneapi_version=$ONEAPI_TAG" >> $GITHUB_OUTPUT
+          echo "  oneAPI base image: $ONEAPI_TAG (paired with IGC ${IGC_MM})"
+
           echo "latest_compute=$CR" >> $GITHUB_OUTPUT
           echo "latest_compute_full=$CRF" >> $GITHUB_OUTPUT
           echo "latest_igc=$IGC" >> $GITHUB_OUTPUT
@@ -318,6 +343,7 @@ jobs:
             COMPUTE_RUNTIME_VERSION_FULL=${{ steps.deps.outputs.latest_compute_full }}
             IGC_VERSION=${{ steps.deps.outputs.latest_igc }}
             IGC_VERSION_FULL=${{ steps.deps.outputs.latest_igc_full }}
+            ONEAPI_VERSION=${{ steps.deps.outputs.oneapi_version }}
             LEVEL_ZERO_VERSION=${{ steps.deps.outputs.latest_level_zero }}
             LEVEL_ZERO_UBUNTU_VERSION=${{ steps.deps.outputs.level_zero_ubuntu_version }}
             IGDGMM_VERSION=${{ steps.deps.outputs.latest_igdgmm }}
