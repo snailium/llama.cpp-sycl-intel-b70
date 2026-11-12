@@ -200,17 +200,30 @@ RUN apt-get update && mkdir /tmp/neo/ && cd /tmp/neo/ \
 #
 # Extracting the payload gives us libdnnl.so.3 with no dependency resolution,
 # which is the same approach already used for IGC / ocloc / level-zero above.
+#
+# NOTE: `intel-oneapi-dnnl` is a META package whose only payload entry is `./`;
+# the library lives in the versioned package (`intel-oneapi-dnnl-2026.1`). The
+# real package name is resolved at build time because the version suffix moves
+# with each Intel release, and extracting the meta name silently yields nothing.
+# Also note no 2026.2 dnnl exists at all -- dnnl is published as 2026.1 and
+# declares the 2026.2 compiler runtime as its dependency, which is exactly the
+# dependency edge that used to drag in the second compiler tree.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y libgomp1 curl ffmpeg; \
     if [ ! -f /opt/intel/oneapi/dnnl/latest/lib/libdnnl.so.3 ]; then \
         cd /tmp; \
-        apt-get download intel-oneapi-dnnl; \
-        dpkg -x intel-oneapi-dnnl_*.deb /; \
-        rm -f intel-oneapi-dnnl_*.deb; \
+        DNNL_PKG=$(apt-cache pkgnames intel-oneapi-dnnl | grep -E '^intel-oneapi-dnnl-[0-9]' | sort -V | tail -1); \
+        [ -n "$DNNL_PKG" ] || { echo "ERROR: no versioned intel-oneapi-dnnl package in the repo" >&2; exit 1; }; \
+        echo "installing oneDNN from ${DNNL_PKG} (the meta package has no payload)"; \
+        apt-get download "$DNNL_PKG"; \
+        dpkg -x "${DNNL_PKG}"_*.deb /; \
+        rm -f "${DNNL_PKG}"_*.deb; \
         DNNL_VER=$(ls -d /opt/intel/oneapi/dnnl/[0-9]* | sort -V | tail -1); \
-        [ -n "$DNNL_VER" ] || { echo "ERROR: intel-oneapi-dnnl extracted no version dir" >&2; exit 1; }; \
-        ln -sfn "$DNNL_VER" /opt/intel/oneapi/dnnl/latest; \
+        [ -n "$DNNL_VER" ] || { echo "ERROR: ${DNNL_PKG} extracted no version dir" >&2; exit 1; }; \
+        rm -rf /opt/intel/oneapi/dnnl/latest; \
+        ln -s "$DNNL_VER" /opt/intel/oneapi/dnnl/latest; \
+        [ -f /opt/intel/oneapi/dnnl/latest/lib/libdnnl.so.3 ] || { echo "ERROR: libdnnl.so.3 absent after extraction" >&2; exit 1; }; \
     fi; \
     ls -d /opt/intel/oneapi/dnnl/[0-9]*; \
     echo '/opt/intel/oneapi/dnnl/latest/lib' > /etc/ld.so.conf.d/onednn.conf; \
@@ -324,15 +337,17 @@ RUN { \
 # every shared-library lookup, which fails silently at runtime rather than at
 # build time -- so fail here instead. See issue #39.
 RUN set -eux; \
-    TREES=$(ls -d /opt/intel/oneapi/compiler/*/ 2>/dev/null | wc -l); \
+    # Glob on digits: `compiler/latest` is a symlink to the real version dir and
+    # must not be counted as a second train.
+    TREES=$(ls -d /opt/intel/oneapi/compiler/[0-9]*/ 2>/dev/null | wc -l); \
     if [ "$TREES" -ne 1 ]; then \
         echo "ERROR: $TREES oneAPI compiler trees present, expected 1:" >&2; \
-        ls -d /opt/intel/oneapi/compiler/*/ >&2; \
+        ls -d /opt/intel/oneapi/compiler/[0-9]*/ >&2; \
         echo "The base image train (ARG ONEAPI_VERSION) and the installed" >&2; \
         echo "IGC/dnnl train must match. See issue #39." >&2; \
         exit 1; \
     fi; \
-    echo "oneAPI compiler tree: $(ls -d /opt/intel/oneapi/compiler/*/)"
+    echo "oneAPI compiler tree: $(ls -d /opt/intel/oneapi/compiler/[0-9]*/)"
 
 
 ### Full (conversion + server + cli)
@@ -422,7 +437,7 @@ COPY --from=build /app/full/llama /app/full/llama-server /app/
 # single compiler train asserted in the base stage. If it does not, the image
 # will look fine here and misbehave at runtime. See issue #39.
 RUN set -eux; \
-    TREE=$(ls -d /opt/intel/oneapi/compiler/*/ | head -1); \
+    TREE=$(ls -d /opt/intel/oneapi/compiler/[0-9]*/ | head -1); \
     ldd /app/libggml-sycl.so > /tmp/ldd.txt; \
     grep -q "oneapi/compiler/" /tmp/ldd.txt || { echo "ERROR: libggml-sycl has no oneAPI compiler dependency" >&2; exit 1; }; \
     grep "oneapi/compiler/" /tmp/ldd.txt | grep -v "$TREE" && { \
