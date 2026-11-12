@@ -3,7 +3,15 @@
 # Goal: Latest components, all features enabled (Flash Attention, MTP/spec-dec, etc.)
 # Do NOT disable optimizations.
 
-ARG ONEAPI_VERSION=2026.1.2-devel-ubuntu26.04
+# ONEAPI_VERSION is the oneAPI *release train* that the SYCL toolchain comes
+# from. It must match the IGC release train, because IGC, the SYCL runtime and
+# dnnl are published per train and are not independently versioned. CI derives
+# it from IGC_VERSION (see build-stable.yml / build-dev.yml); the default here
+# is only a fallback for local builds.
+#
+# Leaving this at 2026.1.2 while CI pulled IGC v2.42.6 (a 2026.2-train compiler)
+# put two compiler trees in the image -- see issue #39.
+ARG ONEAPI_VERSION=2026.2.0-devel-ubuntu26.04
 ARG BUILD_DATE=N/A
 ARG APP_VERSION=N/A
 ARG APP_REVISION=N/A
@@ -178,15 +186,40 @@ RUN apt-get update && mkdir /tmp/neo/ && cd /tmp/neo/ \
   && rm -f /usr/lib/x86_64-linux-gnu/libigc.so.2* /usr/lib/x86_64-linux-gnu/libiga64.so.2* \
   && ldconfig
 
-RUN apt-get update \
-    && apt-get install -y libgomp1 curl ffmpeg intel-oneapi-dnnl \
-    && echo '/opt/intel/oneapi/dnnl/latest/lib' > /etc/ld.so.conf.d/onednn.conf \
-    && ldconfig \
-    && apt autoremove -y \
-    && apt clean -y \
-    && rm -rf /tmp/* /var/tmp/* \
-    && find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete \
-    && find /var/cache -type f -delete
+# oneDNN is installed by extracting the deb, NOT with `apt-get install`.
+#
+# Intel publishes `intel-oneapi-dnnl` with a hard Depends on the compiler
+# runtime of the *newest* train. `apt-get install intel-oneapi-dnnl` therefore
+# resolved `intel-oneapi-compiler-dpcpp-cpp-runtime-2026.2` (+ shared-runtime,
+# openmp, common-vars) and dropped a SECOND 1.5 GB compiler tree next to the
+# base image's own. Nothing in this image ever linked into it (verified with
+# ldd on libggml-sycl, libdnnl and libmkl_sycl_blas: 0 references), but its
+# presence made oneAPI symbol resolution ambiguous -- a pip-installed oneAPI
+# consumer failed with `undefined symbol: urGraphGetIdExp` because the two trees
+# each export a different half of the loader API. See issue #39.
+#
+# Extracting the payload gives us libdnnl.so.3 with no dependency resolution,
+# which is the same approach already used for IGC / ocloc / level-zero above.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y libgomp1 curl ffmpeg; \
+    if [ ! -f /opt/intel/oneapi/dnnl/latest/lib/libdnnl.so.3 ]; then \
+        cd /tmp; \
+        apt-get download intel-oneapi-dnnl; \
+        dpkg -x intel-oneapi-dnnl_*.deb /; \
+        rm -f intel-oneapi-dnnl_*.deb; \
+        DNNL_VER=$(ls -d /opt/intel/oneapi/dnnl/[0-9]* | sort -V | tail -1); \
+        [ -n "$DNNL_VER" ] || { echo "ERROR: intel-oneapi-dnnl extracted no version dir" >&2; exit 1; }; \
+        ln -sfn "$DNNL_VER" /opt/intel/oneapi/dnnl/latest; \
+    fi; \
+    ls -d /opt/intel/oneapi/dnnl/[0-9]*; \
+    echo '/opt/intel/oneapi/dnnl/latest/lib' > /etc/ld.so.conf.d/onednn.conf; \
+    ldconfig; \
+    apt autoremove -y; \
+    apt clean -y; \
+    rm -rf /tmp/* /var/tmp/*; \
+    find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete; \
+    find /var/cache -type f -delete
 
 # ---------------------------------------------------------------------------
 # Post-install dependency-pairing reconciliation.
@@ -283,7 +316,27 @@ RUN { \
     } > /etc/intel-stack-versions; \
     cat /etc/intel-stack-versions
 
+# ---------------------------------------------------------------------------
+# Assert exactly ONE oneAPI compiler train is present.
+#
+# The base image contributes its train; every apt install afterwards is a
+# chance to drag in a second one. Two trees mean ambiguous symbol resolution on
+# every shared-library lookup, which fails silently at runtime rather than at
+# build time -- so fail here instead. See issue #39.
+RUN set -eux; \
+    TREES=$(ls -d /opt/intel/oneapi/compiler/*/ 2>/dev/null | wc -l); \
+    if [ "$TREES" -ne 1 ]; then \
+        echo "ERROR: $TREES oneAPI compiler trees present, expected 1:" >&2; \
+        ls -d /opt/intel/oneapi/compiler/*/ >&2; \
+        echo "The base image train (ARG ONEAPI_VERSION) and the installed" >&2; \
+        echo "IGC/dnnl train must match. See issue #39." >&2; \
+        exit 1; \
+    fi; \
+    echo "oneAPI compiler tree: $(ls -d /opt/intel/oneapi/compiler/*/)"
+
+
 ### Full (conversion + server + cli)
+
 FROM base AS full
 
 COPY --from=build /app/lib/ /app
@@ -364,6 +417,18 @@ ENV DEBUG_FLAG=""
 
 COPY --from=build /app/lib/ /app
 COPY --from=build /app/full/llama /app/full/llama-server /app/
+
+# Every oneAPI dependency of the shipped SYCL backend must resolve into the
+# single compiler train asserted in the base stage. If it does not, the image
+# will look fine here and misbehave at runtime. See issue #39.
+RUN set -eux; \
+    TREE=$(ls -d /opt/intel/oneapi/compiler/*/ | head -1); \
+    ldd /app/libggml-sycl.so > /tmp/ldd.txt; \
+    grep -q "oneapi/compiler/" /tmp/ldd.txt || { echo "ERROR: libggml-sycl has no oneAPI compiler dependency" >&2; exit 1; }; \
+    grep "oneapi/compiler/" /tmp/ldd.txt | grep -v "$TREE" && { \
+        echo "ERROR: libggml-sycl resolves outside $TREE:" >&2; \
+        grep "oneapi/compiler/" /tmp/ldd.txt >&2; exit 1; }; \
+    rm -f /tmp/ldd.txt
 
 WORKDIR /app
 
