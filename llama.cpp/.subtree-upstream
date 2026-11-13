@@ -8,11 +8,11 @@
 # The fields below record exactly where the current content came from, so a
 # build can be traced back to an upstream commit and a b tag (the stable
 # workflow tags images by v* version; the dev workflow needs the b tag).
-tag=v0.9.0
-b_tag=b12110
-commit=cd959bae99ff4bed22bef2604f45241c09bbb8c8
-tag_object=c4261a74a59c5a719e8f73038e28633b08f2bea4
+tag=v1.0.0
+b_tag=b12359
+commit=b1b770d90d94cad9e9ea5b993bdbc383a522fb28
+tag_object=a6d1a74dbebce3a16f4f2ceddbf38c21a08d8674
 tag_type=tag
-version=0.9.0
-synced=2026-11-04
-subject=llama.cpp : bump version to 0.9.0 (#31646)
+version=1.0.0
+synced=2026-11-13
+subject=examples : remove explict version from test-cmake (#32191)
