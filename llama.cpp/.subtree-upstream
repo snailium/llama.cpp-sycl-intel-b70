@@ -8,11 +8,11 @@
 # The fields below record exactly where the current content came from, so a
 # build can be traced back to an upstream commit and a b tag (the stable
 # workflow tags images by v* version; the dev workflow needs the b tag).
-tag=b12782
-b_tag=b12782
-commit=b671865c7bd44c8c2d4709b5f707bd55f7f612fd
-tag_object=b671865c7bd44c8c2d4709b5f707bd55f7f612fd
+tag=b12788
+b_tag=b12788
+commit=4ba835c637d863c00f54b59b8a0285d8d4db04cd
+tag_object=4ba835c637d863c00f54b59b8a0285d8d4db04cd
 tag_type=commit
 version=1.1.0
 synced=2026-11-26
-subject=CUDA: move the fusion code out of ggml-cuda.cu (#33087)
+subject=tests : add RPC support to test-llama-archs (#33112)
