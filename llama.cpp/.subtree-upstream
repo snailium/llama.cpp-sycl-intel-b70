@@ -8,11 +8,11 @@
 # The fields below record exactly where the current content came from, so a
 # build can be traced back to an upstream commit and a b tag (the stable
 # workflow tags images by v* version; the dev workflow needs the b tag).
-tag=v1.0.0
-b_tag=b12359
-commit=b1b770d90d94cad9e9ea5b993bdbc383a522fb28
-tag_object=a6d1a74dbebce3a16f4f2ceddbf38c21a08d8674
+tag=v1.1.0
+b_tag=b12774
+commit=171527522610996f5f0acf12334e185156ca8f44
+tag_object=bdda03620c7355b4779afa8f78cb86129e9bf408
 tag_type=tag
-version=1.0.0
-synced=2026-11-13
-subject=examples : remove explict version from test-cmake (#32191)
+version=1.1.0
+synced=2026-11-26
+subject=sync : ggml
