@@ -8,11 +8,11 @@
 # The fields below record exactly where the current content came from, so a
 # build can be traced back to an upstream commit and a b tag (the stable
 # workflow tags images by v* version; the dev workflow needs the b tag).
-tag=b12602
-b_tag=b12602
-commit=418fe97b5f01b11eeb89f30d8a0459433edbf1d2
-tag_object=418fe97b5f01b11eeb89f30d8a0459433edbf1d2
+tag=b12782
+b_tag=b12782
+commit=b671865c7bd44c8c2d4709b5f707bd55f7f612fd
+tag_object=b671865c7bd44c8c2d4709b5f707bd55f7f612fd
 tag_type=commit
-version=1.0.0
-synced=2026-11-21
-subject=sycl: Improve Grouped XMX GEMM by avoiding SLM staging (#31428)
+version=1.1.0
+synced=2026-11-26
+subject=CUDA: move the fusion code out of ggml-cuda.cu (#33087)
