@@ -105,6 +105,25 @@ COPY . .
 RUN mkdir -p tools/ui/dist
 COPY --from=web /app/tools/ui/dist/ tools/ui/dist/
 
+# Optional build-time patches for the vendored llama.cpp tree, whitespace
+# separated, repo-relative (e.g. ".devops/patches/33035-frexpf-aot.patch").
+# Empty for every normal build. Used to carry an unmerged upstream fix into an
+# A/B image without editing the subtree, so a subtree sync cannot silently drop
+# it (it did on 2026-11-26: see issue #46/#47).
+# Patches are applied with -p1 inside /app/llama.cpp, i.e. against the tree root.
+ARG EXTRA_PATCHES=""
+RUN if [ -n "$EXTRA_PATCHES" ]; then \
+      set -eux; \
+      command -v patch >/dev/null || (apt-get update && apt-get install -y --no-install-recommends patch); \
+      for p in $EXTRA_PATCHES; do \
+        test -f "/app/$p" || { echo "ERROR: patch not found: /app/$p" >&2; exit 1; }; \
+        echo "== applying $p"; \
+        patch -p1 -d /app/llama.cpp --batch --forward < "/app/$p"; \
+      done; \
+      grep -q 'ggml_sycl_fp32_to_f8_e4m3' /app/llama.cpp/ggml/src/ggml-sycl/convert.hpp \
+        || { echo "ERROR: 33035 patch did not take effect" >&2; exit 1; }; \
+    fi
+
 # Build with SYCL + dynamic backends + all CPU variants.
 # NO GGML_SYCL_DISABLE_OPT (that hurts plain llama.cpp SYCL perf)
 # Explicit device arch for B70/Battlemage pre-compilation (AOT)

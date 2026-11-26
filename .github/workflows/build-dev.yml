@@ -56,6 +56,16 @@ on:
         required: false
         default: ''
         type: string
+      pin_b_tag:
+        description: 'A/B only: build this upstream llama.cpp tag instead of the newest b tag'
+        required: false
+        default: ''
+        type: string
+      pin_patch:
+        description: 'A/B only: patch file (repo-relative) applied to the vendored tree at build time'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   check-and-build-dev:
@@ -342,10 +352,13 @@ jobs:
       # ============================================================
       - name: Advance vendored subtree to the newest b tag
         id: advance
-        if: steps.decide.outputs.should_advance == 'true'
+        # A pinned tag is synced even when the advance gate says no: the whole
+        # point of pin_b_tag is to build a tree other than the newest one.
+        if: steps.decide.outputs.should_advance == 'true' || inputs.pin_b_tag != ''
         run: |
           set -e
-          REF="${{ steps.upstream.outputs.latest_b }}"
+          REF="${{ inputs.pin_b_tag || steps.upstream.outputs.latest_b }}"
+          [ -n "${{ inputs.pin_b_tag }}" ] && echo "::warning::vendored subtree PINNED to $REF for an A/B run"
           echo "Advancing vendored subtree ${{ steps.decide.outputs.current_b }} -> $REF"
           UPSTREAM_DIR="${{ steps.upstream.outputs.upstream_dir }}" \
             scripts/sync-llama-subtree.sh "$REF"
@@ -425,6 +438,7 @@ jobs:
             BUILD_WEBUI=0
             GGML_SYCL_F16=ON
             GGML_SYCL_DEVICE_ARCH=bmg-g31
+            EXTRA_PATCHES=${{ inputs.pin_patch }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -508,7 +522,8 @@ jobs:
       # the next scheduled run sees the same gap and advances again.
       # ============================================================
       - name: Record the advance on the dev branch
-        if: steps.decide.outputs.should_advance == 'true'
+        # A pinned A/B tree must not be recorded: dev records the newest b tag.
+        if: steps.decide.outputs.should_advance == 'true' && inputs.pin_b_tag == ''
         run: |
           set -e
           REF="${{ steps.llama.outputs.latest_b }}"
