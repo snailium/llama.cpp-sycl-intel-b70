@@ -120,8 +120,11 @@ RUN if [ -n "$EXTRA_PATCHES" ]; then \
         echo "== applying $p"; \
         patch -p1 -d /app/llama.cpp --batch --forward < "/app/$p"; \
       done; \
-      grep -q 'ggml_sycl_fp32_to_f8_e4m3' /app/llama.cpp/ggml/src/ggml-sycl/convert.hpp \
-        || { echo "ERROR: 33035 patch did not take effect" >&2; exit 1; }; \
+      case " $EXTRA_PATCHES " in \
+        *33035-frexpf-aot.patch*) \
+          grep -q 'ggml_sycl_fp32_to_f8_e4m3' /app/llama.cpp/ggml/src/ggml-sycl/convert.hpp \
+            || { echo "ERROR: 33035 patch did not take effect" >&2; exit 1; } ;; \
+      esac; \
     fi
 
 # Build with SYCL + dynamic backends + all CPU variants.
